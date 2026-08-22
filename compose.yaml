@@ -1,0 +1,91 @@
+# Banco de desenvolvimento do Zelo. Sobe só o PostgreSQL — a API continua rodando no host
+# com `npm run dev`, que é o ciclo de edição mais rápido (watch do tsx, sem rebuild de imagem).
+#
+#   docker compose up -d        # sobe e aplica as migrations
+#   docker compose down         # para, PRESERVANDO os dados
+#   docker compose down -v      # para e APAGA o volume (recria o banco do zero)
+#
+# ATENÇÃO à interpolação: o Compose lê variáveis do `.env` da pasta, e neste projeto o
+# `.env` só define NODE_ENV — as credenciais moram no `.env.<NODE_ENV>`. Por isso todo
+# `${VAR}` abaixo tem default embutido, e o Makefile passa `--env-file .env.development`
+# para manter os dois em sincronia caso você troque a senha.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: zelo-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${PG_USER:-zelo}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-zelo}
+      POSTGRES_DB: ${PG_DB_NAME:-zelo}
+      # TODO(collation): com o provider padrão, `ORDER BY nome` ordena por byte — "Ângela"
+      # cai depois de "Zoe". Para ordenação correta de português, criar as colunas de nome
+      # com uma collation ICU (`CREATE COLLATION ... provider = icu, locale = 'pt-BR'`).
+      # Não fica no initdb para não arriscar o boot do container.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8'
+
+    ports:
+      # Preso a 127.0.0.1: a senha de dev é trivial, não vale expor na rede local.
+      - '127.0.0.1:${PG_PORT:-5432}:5432'
+
+    volumes:
+      # ATENÇÃO ao caminho: no PG 18+ o PGDATA mudou para /var/lib/postgresql/18/docker e o
+      # VOLUME da imagem passou a ser /var/lib/postgresql. Montar em .../data (o certo até o
+      # PG 17) criaria um volume VAZIO e os dados iriam para um volume anônimo, sem erro
+      # nenhum — some tudo no primeiro `down -v`. Se voltar para o 17, o caminho volta a ser
+      # /var/lib/postgresql/data.
+      - pgdata:/var/lib/postgresql
+      # A imagem executa /docker-entrypoint-initdb.d/*.sql em ordem ALFABÉTICA no primeiro
+      # boot — que é exatamente a ordem numérica das migrations (001, 002, 003).
+      # Só roda com o volume VAZIO: migration nova depois disso exige `make db-migrate`
+      # (aplica as pendentes) ou `make db-reset` (recria tudo).
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      # Permite `docker compose up --wait` e o `make db-wait` do CI/scripts.
+      test: ['CMD-SHELL', 'pg_isready -U ${PG_USER:-zelo} -d ${PG_DB_NAME:-zelo}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Destino do log de request/response. É ACESSÓRIO: nenhum dado de domínio mora aqui, e a
+  # aplicação sobe normalmente com este container parado (o `getCollection()` devolve null e
+  # o middleware desiste em silêncio). Ligar/desligar o log é a flag MONGO_LOG_ACTIVE no
+  # `.env.<NODE_ENV>` — não é preciso parar o container para desativar.
+  mongo:
+    image: mongo:8
+    container_name: zelo-mongo
+    restart: unless-stopped
+
+    environment:
+      # Define o banco contra o qual os scripts de initdb.d rodam.
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-ZELO}
+      # SEM autenticação, de propósito: a MONGO_URI de desenvolvimento não carrega
+      # credencial. Definir MONGO_INITDB_ROOT_USERNAME aqui LIGA a auth e faria a URI atual
+      # falhar. Em homolog/produção, use URI com credencial.
+
+    ports:
+      # Preso a 127.0.0.1 — sem auth, publicar na rede seria um banco aberto.
+      - '127.0.0.1:${MONGO_PORT:-27017}:27017'
+
+    volumes:
+      - mongodata:/data/db
+      # O entrypoint executa /docker-entrypoint-initdb.d/*.js no primeiro boot. É onde o
+      # índice TTL é criado — a aplicação nunca cria índice nem remove documento.
+      - ./db/mongo-init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test: ['CMD-SHELL', 'mongosh --quiet --eval "db.adminCommand({ ping: 1 }).ok" || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pgdata:
+    name: zelo-pgdata
+  mongodata:
+    name: zelo-mongodata

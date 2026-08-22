@@ -4,7 +4,15 @@ import { logger } from '@shared/utils/logger/index.js';
 export interface MongoConfig {
   uri: string;
   database: string;
+  /**
+   * Teto para o driver escolher um servidor. O default do driver é 30s, o que fazia o boot
+   * levar 35s quando o Mongo estava fora — inaceitável para uma dependência ACESSÓRIA, que
+   * por definição não deve atrasar a subida da API. Falhe rápido e siga sem o log.
+   */
+  serverSelectionTimeoutMS?: number;
 }
+
+const DEFAULT_SERVER_SELECTION_TIMEOUT_MS = 3_000;
 
 /**
  * Driver oficial, sem Mongoose. Duas características das quais o resto do sistema depende:
@@ -26,7 +34,10 @@ export class MongoDatabase {
 
     // `connecting` evita abrir 2 pools em chamadas concorrentes antes do 1º connect() resolver.
     if (!this.connecting) {
-      this.connecting = MongoClient.connect(this.config.uri)
+      this.connecting = MongoClient.connect(this.config.uri, {
+        serverSelectionTimeoutMS:
+          this.config.serverSelectionTimeoutMS ?? DEFAULT_SERVER_SELECTION_TIMEOUT_MS,
+      })
         .then((client) => {
           this.client = client;
           this.db = client.db(this.config.database);

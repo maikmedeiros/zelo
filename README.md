@@ -19,9 +19,9 @@ segmentado por turma e gestão granular de consentimento de uso de imagem.
 ```bash
 nvm use                 # lê o .nvmrc (Node 24)
 npm ci
-cp .env.example .env    # e preencha
-make migrate            # aplica db/migrations/*.sql em ordem
-npm run dev             # sobe na porta do .env
+cp .env.example .env.development   # e preencha (o .env só define NODE_ENV)
+npm run db:up                      # sobe o PostgreSQL e aplica as migrations
+npm run dev                        # sobe na porta do .env.<NODE_ENV>
 ```
 
 Verificação:
@@ -54,6 +54,87 @@ curl -s http://localhost:3000/metrics     # público (registrado antes do inject
 
 ---
 
+## Banco local com Docker
+
+O [compose.yaml](compose.yaml) sobe **PostgreSQL** (fonte da verdade) e **MongoDB**
+(destino do log de request/response) — a API continua no host com `npm run dev`, que é o
+ciclo de edição mais rápido (watch do `tsx`, sem rebuild de imagem).
+
+```bash
+npm run db:up        # sobe os dois e espera os healthchecks passarem
+npm run db:psql      # abre um psql no PostgreSQL
+npm run db:mongo     # abre um mongosh no MongoDB
+npm run db:logs      # acompanha o log do PostgreSQL
+npm run db:down      # para, PRESERVANDO os dados
+npm run db:reset     # APAGA os volumes e recria tudo do zero
+npm run db:mongo:up  # sobe SÓ o Mongo (útil para testar a degradação da API sem ele)
+```
+
+**As migrations rodam sozinhas no primeiro `db:up`.** A imagem do Postgres executa
+`/docker-entrypoint-initdb.d/*.sql` em ordem alfabética, que é exatamente a ordem numérica
+de `db/migrations/` (`001` → `002` → `003`).
+
+Três coisas que valem saber:
+
+- **O initdb só roda com o volume vazio.** Depois do primeiro boot, uma migration nova **não**
+  é aplicada por um `db:up`. Ou você recria (`npm run db:reset`, perdendo os dados), ou aplica
+  só a nova à mão:
+  ```bash
+  docker compose --env-file .env.development exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U zelo -d zelo < db/migrations/004_nova.sql
+  ```
+  Os scripts **não são idempotentes** — reaplicar `001` num banco já criado dá erro de objeto
+  duplicado.
+- **A porta é publicada só em `127.0.0.1`.** A senha de desenvolvimento é trivial; não vale
+  expor na rede local.
+- **O Compose interpola do `.env`**, e neste projeto o `.env` só define `NODE_ENV` — as
+  credenciais estão no `.env.<NODE_ENV>`. É por isso que os scripts passam
+  `--env-file .env.development`: mantém compose e aplicação com a **mesma** senha. Se rodar
+  `docker compose up -d` puro, ele cai nos defaults (`zelo`/`zelo`/`zelo`).
+
+### Log de request/response no MongoDB
+
+Ligado pela feature flag **`MONGO_LOG_ACTIVE`** no `.env.<NODE_ENV>`. É **acessório**: nenhum
+dado de domínio mora no Mongo, e a API funciona com ele desligado ou fora do ar.
+
+| `MONGO_LOG_ACTIVE` | O que acontece                                                             |
+| ------------------ | -------------------------------------------------------------------------- |
+| `false`            | Nenhum socket é aberto, o middleware não é registrado. Boot em **~1s**     |
+| `true`, Mongo up   | Cada requisição gera um documento na coleção `logs`                        |
+| `true`, Mongo down | A API **sobe assim mesmo**, loga o erro e segue sem o log. Boot em **~4s** |
+
+Comportamento verificado nos três casos. Três invariantes que **não** devem ser quebradas:
+
+1. **Nunca no caminho da resposta.** A escrita acontece em `res.on('finish')` e o `insertOne`
+   **não é aguardado**.
+2. **Mongo fora não vira erro de request.** `getCollection()` devolve `null` e o middleware
+   desiste em silêncio.
+3. **Nada de dado sensível.** `redact()` mascara por nome de chave, `pickHeaders()` é
+   **allowlist** (por isso `authorization` e `cookie` nunca são gravados) e `truncate()` corta
+   corpo acima de `MONGO_LOG_MAX_BODY_SIZE`.
+
+**Os índices são criados no primeiro boot do container**, por
+[db/mongo-init/001_indexes.js](db/mongo-init/001_indexes.js): o **TTL** de 30 dias em
+`timestamp` (a aplicação nunca remove documento — sem ele a coleção cresce até estourar o
+disco) e três índices de consulta, por rota, por ator e por status.
+
+> Em homolog/produção esse script **não roda** — o `initdb.d` é do container local. **Crie o
+> índice TTL à mão antes de ligar a flag em produção.**
+
+Duas armadilhas conhecidas:
+
+- **A flag só muda no arquivo.** `config/env.ts` carrega `.env.<NODE_ENV>` com
+  `override: true`, então `MONGO_LOG_ACTIVE=false npm run dev` **não funciona** — o valor do
+  arquivo vence. Edite o `.env.<NODE_ENV>`.
+- **Sem reconexão automática.** Se a API subir com o Mongo fora, ela não volta a tentar
+  conectar quando o Mongo aparecer: `getCollection()` segue devolvendo `null`. Suba o Mongo
+  **antes** da API, ou reinicie a API depois.
+
+Para um banco **externo** (homolog/produção), o alvo `make migrate` aplica as migrations via
+`psql` do host.
+
+---
+
 ## Variáveis de ambiente
 
 Todas passam por um schema Zod em `src/config/env.ts`. **Variável faltando ou inválida
@@ -78,7 +159,7 @@ lança no boot**, com a lista de problemas. Nenhum outro módulo lê `process.en
 | `SQL_LOG_STATEMENTS`      | não (`false`)       | loga as sentenças SQL (só via `npm run dev:sql`)                 |
 | `STORAGE_ROOT`            | não (`./uploads`)   | raiz do storage local de mídia                                   |
 | `UPLOAD_MAX_FILE_SIZE`    | não (`10485760`)    | teto por arquivo, em bytes                                       |
-| `MONGO_LOG_ENABLED`       | não (`false`)       | liga o log de request/response                                   |
+| `MONGO_LOG_ACTIVE`        | não (`false`)       | liga o log de request/response                                   |
 | `MONGO_URI`               | **se log ligado**   | URI de conexão                                                   |
 | `MONGO_DB_NAME`           | **se log ligado**   | banco do log                                                     |
 | `MONGO_LOG_COLLECTION`    | não (`logs`)        | coleção do log                                                   |

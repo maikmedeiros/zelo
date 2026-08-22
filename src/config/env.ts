@@ -43,7 +43,7 @@ const envSchema = z
     STORAGE_ROOT: z.string().min(1).default('./uploads'),
     UPLOAD_MAX_FILE_SIZE: z.coerce.number().int().positive().default(10_485_760),
 
-    MONGO_LOG_ENABLED: z.preprocess(blankAsUndefined, z.stringbool().default(false)),
+    MONGO_LOG_ACTIVE: z.preprocess(blankAsUndefined, z.stringbool().default(false)),
     MONGO_URI: z.preprocess(blankAsUndefined, z.string().min(1).optional()),
     MONGO_DB_NAME: z.preprocess(blankAsUndefined, z.string().min(1).optional()),
     MONGO_LOG_COLLECTION: z.preprocess(blankAsUndefined, z.string().min(1).default('logs')),
@@ -54,14 +54,14 @@ const envSchema = z
   })
   // Envs CONDICIONAIS: só quando o log está ligado, URI e DB_NAME passam a ser obrigatórias.
   .superRefine((values, ctx) => {
-    if (!values.MONGO_LOG_ENABLED) return;
+    if (!values.MONGO_LOG_ACTIVE) return;
 
     for (const key of ['MONGO_URI', 'MONGO_DB_NAME'] as const) {
       if (!values[key]) {
         ctx.addIssue({
           code: 'custom',
           path: [key],
-          message: 'obrigatória quando MONGO_LOG_ENABLED está ligada',
+          message: 'obrigatória quando MONGO_LOG_ACTIVE está ligada',
         });
       }
     }
@@ -104,7 +104,7 @@ export const env = {
     maxFileSizeBytes: data.UPLOAD_MAX_FILE_SIZE,
   },
   mongo: {
-    logEnabled: data.MONGO_LOG_ENABLED,
+    logEnabled: data.MONGO_LOG_ACTIVE,
     uri: data.MONGO_URI ?? '',
     database: data.MONGO_DB_NAME ?? '',
     collection: data.MONGO_LOG_COLLECTION,
