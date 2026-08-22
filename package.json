@@ -10,6 +10,7 @@
   "scripts": {
     "prepare": "husky",
     "build": "tsc && tsc-alias",
+    "predev": "docker compose --env-file .env.development up -d --wait postgres mongo",
     "dev": "tsx watch src/main/start.ts",
     "dev:sql": "SQL_LOG_STATEMENTS=true npm run dev",
     "db:up": "docker compose --env-file .env.development up -d --wait",
