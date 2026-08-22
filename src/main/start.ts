@@ -1,7 +1,14 @@
 import { createApp } from '@main/app.js';
-import { db } from '@config/database.js';
+import { db, pgConnection } from '@config/database.js';
 import { env } from '@config/env.js';
+import { runMigrations } from '@shared/infra/database/index.js';
 import { logger } from '@shared/utils/logger/index.js';
+
+// Antes de qualquer outra coisa: sem esquema não há aplicação. Falha aqui derruba o boot,
+// no mesmo espírito da validação de env — nada de subir e quebrar na primeira query.
+if (env.pg.autoMigrate) {
+  await runMigrations(pgConnection);
+}
 
 if (env.mongo.logEnabled) {
   try {

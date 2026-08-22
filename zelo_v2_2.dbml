@@ -1,0 +1,1013 @@
+// =============================================================================
+// ZELO — Plataforma de comunicação escola-família para educação infantil
+// Modelo de dados v2 — DBML para https://dbdiagram.io
+// =============================================================================
+// Mudanças em relação à v1:
+//   · PESSOA como entidade base; USUARIO passa a ser apenas o login (0..1).
+//   · Papéis em tabelas próprias: ALUNO, RESPONSAVEL, PROFESSOR.
+//   · PERFIL vira tabela; RBAC completo com PERMISSAO e PERFIL_PERMISSAO.
+//   · Notificação por e-mail modelada (padrão outbox).
+//   · Logs removidos — vão para MongoDB (ver seção MONGODB no fim).
+//   · Nomes de tabela em CAIXA ALTA.
+//
+// ⚠️ ATENÇÃO AO CRIAR O DDL: o PostgreSQL rebaixa identificadores não citados
+// para minúsculas. `CREATE TABLE PESSOA` cria a tabela `pessoa` — e está tudo
+// certo. NÃO use aspas duplas ("PESSOA"), senão você será obrigado a citar o
+// nome em toda consulta, para sempre. Caixa alta aqui é para o diagrama.
+// =============================================================================
+
+Project zelo {
+  database_type: 'PostgreSQL'
+  Note: '''
+  # Zelo — v2
+
+  Plataforma de comunicação escola-família para educação infantil, com feed
+  segmentado por turma e gestão granular de consentimento de uso de imagem.
+
+  TCC de Ciência da Computação — UNIP, 2026.
+
+  ## Os dois eixos da autorização
+
+  **O QUE pode ser feito** é declarado: PERFIL → PERFIL_PERMISSAO → PERMISSAO,
+  com códigos no formato ACAO:RECURSO (CREATE:POST, VIEW:POST, DELETE:POST).
+
+  **SOBRE QUAIS LINHAS** vem sempre de um vínculo explícito ou derivado:
+  - Responsável: RESPONSAVEL_ALUNO → MATRICULA → TURMA  (derivado)
+  - Professor:   PROFESSOR_TURMA → TURMA                 (explícito)
+  - Coordenação, direção e demais: ACESSO_TURMA → TURMA  (explícito)
+
+  **Ninguém enxerga uma turma sem vínculo.** Não há atalho por cargo: a
+  coordenadora precisa de concessão explícita, turma a turma, exatamente
+  como a professora.
+
+  Confundir os dois eixos é o erro que abre o buraco que este trabalho fecha.
+  Ter permissão VIEW:POST não é o mesmo que poder ver a postagem daquela turma.
+  '''
+}
+
+// =============================================================================
+// TIPOS ENUMERADOS
+// =============================================================================
+
+Enum turno_turma {
+  MANHA
+  TARDE
+  INTEGRAL
+}
+
+Enum parentesco {
+  MAE
+  PAI
+  AVO
+  TIO
+  IRMAO
+  TUTOR_LEGAL
+  OUTRO
+}
+
+Enum funcao_professor {
+  TITULAR
+  AUXILIAR
+  VOLANTE
+}
+
+Enum abrangencia {
+  PROPRIA [note: 'Apenas os próprios registros']
+  TURMA   [note: 'Somente turmas vinculadas — PROFESSOR_TURMA, ACESSO_TURMA ou filhos matriculados']
+  ESCOLA  [note: 'Toda a escola. Reservado a cadastros e configuração; NÃO usar para conteúdo de turma.']
+}
+
+Enum ambiente_token {
+  DESENVOLVIMENTO [note: 'Restringir a bases não produtivas']
+  HOMOLOGACAO
+  PRODUCAO        [note: 'Nominal, curta duração, uso auditado']
+}
+
+Enum motivo_acesso_turma {
+  COORDENACAO
+  DIRECAO
+  SECRETARIA
+  SUBSTITUICAO
+  ESTAGIO
+  OUTRO
+}
+
+Enum tipo_consentimento {
+  IMAGEM_INTERNA        [note: 'Imagem visível aos demais responsáveis da turma']
+  IMAGEM_EXTERNA        [note: 'Site, redes sociais, material institucional']
+  TRATAMENTO_BIOMETRICO [note: 'Template facial — dado sensível, LGPD art. 5 II']
+}
+
+Enum origem_consentimento {
+  TERMO_MATRICULA
+  PORTAL_RESPONSAVEL
+  IMPORTACAO
+  SOLICITACAO_VERBAL [note: 'Exige documento anexo — restrição CHECK']
+}
+
+Enum tipo_postagem {
+  REGISTRO_DIARIO
+  RECADO
+  EVENTO
+}
+
+Enum status_postagem {
+  RASCUNHO
+  PUBLICADA
+  REMOVIDA
+}
+
+Enum status_processamento {
+  PENDENTE
+  PROCESSANDO
+  PROCESSADA
+  ERRO
+}
+
+Enum finalidade_variante {
+  THUMBNAIL
+  PROTEGIDA [note: 'Faces sem consentimento vigente borradas']
+  INTEGRAL  [note: 'Sem borramento; apenas perfis internos autorizados']
+}
+
+Enum tipo_notificacao {
+  POSTAGEM_PUBLICADA
+  RELATORIO_PUBLICADO
+  CONSENTIMENTO_ALTERADO
+  COMUNICADO_ESCOLA
+}
+
+Enum canal_notificacao {
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+Enum status_envio {
+  PENDENTE
+  ENVIANDO
+  ENVIADO
+  ENTREGUE
+  FALHA
+  CANCELADO  [note: 'Destinatário optou por não receber']
+}
+
+Enum dimensao_adaptacao {
+  ACOLHIMENTO
+  ALIMENTACAO
+  SONO
+  SOCIALIZACAO
+  AUTONOMIA
+  LINGUAGEM
+  DESENVOLVIMENTO_MOTOR
+}
+
+Enum nivel_adaptacao {
+  NAO_OBSERVADO
+  EM_INICIO
+  EM_DESENVOLVIMENTO
+  CONSOLIDADO
+}
+
+Enum status_relatorio {
+  RASCUNHO
+  PUBLICADO
+}
+
+// =============================================================================
+// 1. PESSOA, LOGIN E CONTROLE DE ACESSO
+// =============================================================================
+
+Table ESCOLA {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  nome          text        [not null]
+  cnpj          varchar(14) [unique]
+  criado_em     timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+}
+
+Table PESSOA {
+  id              uuid        [pk, default: `gen_random_uuid()`]
+  escola_id       uuid        [not null, ref: > ESCOLA.id]
+  nome            text        [not null]
+  nome_social     text
+  data_nascimento date
+  cpf             varchar(11)
+  telefone        varchar(20)
+  email_contato   citext      [note: 'Contato. NÃO é a credencial de login.']
+  criado_em       timestamptz [not null, default: `now()`]
+  atualizado_em   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (escola_id, cpf) [unique, name: 'uq_pessoa_cpf']
+    escola_id
+  }
+  Note: '''
+  # Entidade base de identidade
+
+  Toda pessoa física do sistema é uma PESSOA: criança, responsável, professora,
+  coordenadora, diretora.
+
+  Isso resolve o caso que quebra modelos ingênuos: **a professora que também é
+  mãe de aluno**. Ela é UMA pessoa, com uma linha em PROFESSOR e outra em
+  RESPONSAVEL, e um único login.
+  '''
+}
+
+Table USUARIO {
+  id               uuid        [pk, default: `gen_random_uuid()`]
+  pessoa_id        uuid        [not null, unique, ref: - PESSOA.id]
+  email            citext      [not null, note: 'Credencial de login']
+  senha_hash       text        [not null, note: 'argon2id']
+  ativo            boolean     [not null, default: true]
+  email_verificado boolean     [not null, default: false]
+  ultimo_acesso_em timestamptz
+  criado_em        timestamptz [not null, default: `now()`]
+  atualizado_em    timestamptz [not null, default: `now()`]
+
+  indexes {
+    email [unique, name: 'uq_usuario_email']
+  }
+  Note: '''
+  # Login — relação 0..1 com PESSOA
+
+  **Nem toda PESSOA tem USUARIO.** A criança da educação infantil não faz
+  login. A avó cadastrada como contato de emergência pode nunca acessar o
+  sistema. Por isso a FK está aqui, e não o contrário.
+  '''
+}
+
+Table SESSAO {
+  id                  uuid        [pk, default: `gen_random_uuid()`]
+  usuario_id          uuid        [not null, ref: > USUARIO.id]
+  token_hash          char(64)    [not null, unique, note: 'SHA-256 do token de sessão. NUNCA o token em claro.']
+  ip                  inet
+  user_agent          text
+  criado_em           timestamptz [not null, default: `now()`]
+  ultima_atividade_em timestamptz [not null, default: `now()`, note: 'Atualizado a cada requisição autenticada']
+  expira_em           timestamptz [not null, note: 'Deslizante: ultima_atividade_em + janela de inatividade']
+  expira_absoluto_em  timestamptz [not null, note: 'Teto rígido — a sessão morre aqui mesmo com uso contínuo']
+
+  indexes {
+    token_hash [unique, name: 'uq_sessao_token']
+    usuario_id
+    expira_em  [name: 'idx_sessao_expira — usado pela rotina de limpeza']
+  }
+  Note: '''
+  # Sessão ativa — expiração deslizante com teto rígido
+
+  A cada requisição autenticada: `ultima_atividade_em = now()` e
+  `expira_em = now() + janela_inatividade`. Uma rotina periódica executa
+  `DELETE FROM sessao WHERE expira_em < now()`, e a ausência da linha é o que
+  devolve o usuário para a tela de login. É exatamente o comportamento que
+  você descreveu.
+
+  ## Duas decisões que recomendo
+
+  **Armazene apenas o hash, nunca o token em claro.** Se o banco vazar, tokens
+  em claro equivalem a sequestro imediato de todas as sessões — inclusive as
+  de professoras e coordenação, que dão acesso a fotos de crianças. O servidor
+  recebe o token, calcula o SHA-256 e busca pelo hash. Não há perda de
+  funcionalidade e o custo é uma linha de código.
+
+  **`expira_absoluto_em` além do deslizante.** Só com expiração por
+  inatividade, uma sessão sequestrada sobrevive indefinidamente enquanto o
+  atacante a mantiver ativa. O teto rígido força reautenticação. Sugestão para
+  o Zelo: 30 minutos de inatividade para perfis internos, 7 dias para
+  responsáveis (que acessam o app casualmente), teto absoluto de 30 dias.
+
+  **Sobre apagar a linha:** você perde o rastro de quando a sessão terminou.
+  Como os logs vão para o MongoDB, registre lá o encerramento antes do DELETE.
+  '''
+}
+
+Table API_TOKEN {
+  id             uuid        [pk, default: `gen_random_uuid()`]
+  usuario_id     uuid        [not null, ref: > USUARIO.id]
+  nome           text        [not null, note: 'Rótulo legível: "Postman local do Maik"']
+  prefixo        varchar(12) [not null, note: 'Primeiros caracteres, em claro — identifica o token na tela sem revelá-lo']
+  token_hash     char(64)    [not null, unique, note: 'SHA-256. O valor em claro é exibido UMA vez, na criação.']
+  ambiente       ambiente_token [not null, default: 'DESENVOLVIMENTO']
+  criado_em      timestamptz [not null, default: `now()`]
+  expira_em      timestamptz [not null, note: 'Obrigatório. Não existe token eterno.']
+  ultimo_uso_em  timestamptz
+  ultimo_uso_ip  inet
+  revogado_em    timestamptz
+  revogado_por   uuid        [ref: > USUARIO.id]
+
+  indexes {
+    token_hash [unique, name: 'uq_api_token_hash']
+    usuario_id
+    prefixo
+  }
+  Note: '''
+  # Chave de acesso para desenvolvedores
+
+  Permite autenticar requisições no Postman, em scripts e em integrações, sem
+  passar pelo fluxo de login com senha. Enviada como `Authorization: Bearer`.
+
+  ## O token herda as permissões do usuário dono — nem mais, nem menos
+
+  Ele autentica **como** aquele USUARIO: a resolução de permissões é a mesma
+  do login por senha, percorrendo USUARIO_PERFIL → PERFIL_PERMISSAO →
+  PERMISSAO. O escopo de turmas também é o mesmo, resolvido por
+  PROFESSOR_TURMA, ACESSO_TURMA ou RESPONSAVEL_ALUNO → MATRICULA.
+
+  O token não é uma identidade nova e não pode ampliar acesso. Se um
+  desenvolvedor precisa de mais poder no Postman, o caminho é conceder a
+  permissão ao usuário dele — nunca ao token.
+
+  Consequência prática favorável: não há segunda árvore de autorização para
+  manter nem para testar. Um único caminho de decisão serve à interface e à
+  API.
+
+  ## Três decisões de segurança embutidas no modelo
+
+  **`expira_em` é NOT NULL.** Chave de desenvolvedor sem validade é o vetor
+  clássico: fica num `.env` esquecido, num Postman compartilhado, num commit.
+  Sugestão: 90 dias no máximo.
+
+  **`prefixo` em claro, resto em hash.** A tela lista "zelo_dev_a1b2…" para o
+  dono identificar e revogar o token certo, sem que o banco guarde o segredo.
+
+  **`ambiente` existe por um motivo específico do Zelo.** Um token de
+  desenvolvedor apontando para produção lê fotografias de crianças reais a
+  partir do Postman de alguém. Restrinja tokens DESENVOLVIMENTO a bases não
+  produtivas; se um token de produção for mesmo necessário, que seja nominal,
+  de curta duração e registrado no log de auditoria a cada uso.
+
+  Isso vale um parágrafo no capítulo de arquitetura: a superfície de acesso de
+  um sistema não é só a interface do usuário final.
+  '''
+}
+
+
+Table PERFIL {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  escola_id     uuid        [ref: > ESCOLA.id, note: 'NULL = perfil de sistema, comum a todas as escolas']
+  codigo        varchar(40) [not null, note: 'DIRECAO, COORDENACAO, PROFESSOR, RESPONSAVEL']
+  nome          text        [not null]
+  descricao     text
+  sistema       boolean     [not null, default: false, note: 'Perfis de sistema não podem ser excluídos']
+  criado_em     timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (escola_id, codigo) [unique, name: 'uq_perfil_codigo']
+  }
+}
+
+Table USUARIO_PERFIL {
+  id           uuid        [pk, default: `gen_random_uuid()`]
+  usuario_id   uuid        [not null, ref: > USUARIO.id]
+  perfil_id    uuid        [not null, ref: > PERFIL.id]
+  concedido_por uuid       [ref: > USUARIO.id]
+  data_inicio  date        [not null, default: `CURRENT_DATE`]
+  data_fim     date
+  criado_em    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (usuario_id, perfil_id) [name: 'uq_usuario_perfil_ativo — ÚNICO PARCIAL: WHERE data_fim IS NULL']
+  }
+  Note: '''
+  # Por que N:N e não uma FK simples em USUARIO
+
+  A professora que também é mãe de aluno precisa dos dois perfis no mesmo
+  login. Com perfil único, a alternativa seria dois logins para a mesma
+  pessoa, ou um perfil híbrido artificial. Ambas ruins.
+
+  Se você preferir 1:N, basta mover `perfil_id` para USUARIO e apagar esta
+  tabela — mas o caso acima vai aparecer.
+  '''
+}
+
+Table PERMISSAO {
+  id        uuid        [pk, default: `gen_random_uuid()`]
+  codigo    varchar(60) [not null, unique, note: 'Formato ACAO:RECURSO — ex.: CREATE:POST']
+  acao      varchar(20) [not null, note: 'CREATE, VIEW, UPDATE, DELETE, PUBLISH, REVOKE']
+  recurso   varchar(40) [not null, note: 'POST, MEDIA, REPORT, CONSENT, STUDENT, CLASS, USER']
+  descricao text
+  criado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (recurso, acao) [unique, name: 'uq_permissao_recurso_acao']
+  }
+  Note: '''
+  # Catálogo de ações do sistema
+
+  Exemplos de linhas:
+
+  | codigo         | acao   | recurso |
+  |----------------|--------|---------|
+  | CREATE:POST    | CREATE | POST    |
+  | VIEW:POST      | VIEW   | POST    |
+  | DELETE:POST    | DELETE | POST    |
+  | PUBLISH:REPORT | PUBLISH| REPORT  |
+  | REVOKE:CONSENT | REVOKE | CONSENT |
+  | VIEW:MEDIA     | VIEW   | MEDIA   |
+
+  **Esta tabela responde O QUE pode ser feito — nunca SOBRE QUAIS LINHAS.**
+  O escopo vem da abrangência da concessão e das tabelas de vínculo.
+
+  Para o MVP: popule por seed. Não construa tela de gestão de permissões —
+  é escopo que não cabe em 30 dias e ninguém vai usar no protótipo.
+  '''
+}
+
+Table PERFIL_PERMISSAO {
+  id           uuid        [pk, default: `gen_random_uuid()`]
+  perfil_id    uuid        [not null, ref: > PERFIL.id]
+  permissao_id uuid        [not null, ref: > PERMISSAO.id]
+  abrangencia  abrangencia [not null, default: 'PROPRIA']
+  criado_em    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (perfil_id, permissao_id) [unique, name: 'uq_perfil_permissao']
+  }
+  Note: '''
+  # A abrangência vive na CONCESSÃO, não na permissão
+
+  A mesma ação vale coisas diferentes conforme quem a recebe:
+
+  | perfil       | permissao        | abrangencia |
+  |--------------|------------------|-------------|
+  | RESPONSAVEL  | VIEW:POST        | TURMA       |
+  | PROFESSOR    | VIEW:POST        | TURMA       |
+  | PROFESSOR    | CREATE:POST      | TURMA       |
+  | COORDENACAO  | VIEW:POST        | TURMA       |
+  | COORDENACAO  | CREATE:STUDENT   | ESCOLA      |
+  | DIRECAO      | VIEW:POST        | TURMA       |
+  | DIRECAO      | CREATE:USER      | ESCOLA      |
+
+  **Repare: conteúdo de turma é sempre abrangência TURMA, para todo perfil.**
+  Coordenação e direção enxergam mais turmas porque têm mais linhas em
+  ACESSO_TURMA — não porque o cargo abre um atalho.
+
+  ESCOLA fica reservada a operações que não são de turma: cadastrar aluno,
+  criar usuário, configurar a escola. Usar ESCOLA para VIEW:POST anularia o
+  requisito central do trabalho.
+  '''
+}
+
+// =============================================================================
+// 2. PAPÉIS
+// =============================================================================
+
+Table ALUNO {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  pessoa_id     uuid        [not null, unique, ref: - PESSOA.id]
+  codigo        varchar(20) [note: 'Código interno de matrícula da escola']
+  observacoes   text        [note: 'Alergias, restrições — dado sensível de saúde, LGPD art. 5 II']
+  ativo         boolean     [not null, default: true]
+  criado_em     timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  Note: 'Não tem USUARIO — criança da educação infantil não faz login.'
+}
+
+Table RESPONSAVEL {
+  id                 uuid        [pk, default: `gen_random_uuid()`]
+  pessoa_id          uuid        [not null, unique, ref: - PESSOA.id]
+  receber_email      boolean     [not null, default: true]
+  receber_push       boolean     [not null, default: true]
+  criado_em          timestamptz [not null, default: `now()`]
+  atualizado_em      timestamptz [not null, default: `now()`]
+
+  Note: 'Preferência de notificação vive aqui — a lei não permite forçar o canal.'
+}
+
+Table RESPONSAVEL_ALUNO {
+  id             uuid        [pk, default: `gen_random_uuid()`]
+  responsavel_id uuid        [not null, ref: > RESPONSAVEL.id]
+  aluno_id       uuid        [not null, ref: > ALUNO.id]
+  parentesco     parentesco  [not null]
+  pode_consentir boolean     [not null, default: false]
+  financeiro     boolean     [not null, default: false, note: 'Responsável financeiro']
+  data_inicio    date        [not null, default: `CURRENT_DATE`]
+  data_fim       date
+  criado_em      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (responsavel_id, aluno_id) [name: 'uq_responsavel_aluno_ativo — ÚNICO PARCIAL: WHERE data_fim IS NULL']
+    responsavel_id
+    aluno_id
+  }
+  Note: '''
+  N:N — a criança tem mãe, pai, avó; o responsável tem vários filhos,
+  possivelmente em **turmas diferentes**.
+
+  `pode_consentir` distingue quem tem legitimidade para registrar consentimento:
+  a LGPD (art. 14 §1) exige "pelo menos um dos pais ou o responsável legal",
+  não qualquer familiar cadastrado como contato.
+
+  **Esta tabela, junto com MATRICULA, define o escopo de turmas do responsável.**
+  '''
+}
+
+Table PROFESSOR {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  pessoa_id     uuid        [not null, unique, ref: - PESSOA.id]
+  registro      varchar(30) [note: 'Matrícula funcional']
+  formacao      text
+  ativo         boolean     [not null, default: true]
+  criado_em     timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+}
+
+Table PROFESSOR_TURMA {
+  id           uuid             [pk, default: `gen_random_uuid()`]
+  professor_id uuid             [not null, ref: > PROFESSOR.id]
+  turma_id     uuid             [not null, ref: > TURMA.id]
+  funcao       funcao_professor [not null, default: 'TITULAR']
+  data_inicio  date             [not null, default: `CURRENT_DATE`]
+  data_fim     date
+  criado_em    timestamptz      [not null, default: `now()`]
+
+  indexes {
+    (professor_id, turma_id) [name: 'uq_professor_turma_ativo — ÚNICO PARCIAL: WHERE data_fim IS NULL']
+    turma_id
+  }
+  Note: '''
+  **Define o escopo de turmas do professor.**
+
+  Vigência em vez de exclusão: a troca de professora no meio do ano não pode
+  apagar o histórico de quem tinha acesso a quê — pergunta que uma auditoria
+  de proteção de dados faz.
+  '''
+}
+
+Table ACESSO_TURMA {
+  id            uuid                 [pk, default: `gen_random_uuid()`]
+  usuario_id    uuid                 [not null, ref: > USUARIO.id]
+  turma_id      uuid                 [not null, ref: > TURMA.id]
+  motivo        motivo_acesso_turma  [not null]
+  concedido_por uuid                 [not null, ref: > USUARIO.id]
+  justificativa text
+  data_inicio   date                 [not null, default: `CURRENT_DATE`]
+  data_fim      date
+  criado_em     timestamptz          [not null, default: `now()`]
+
+  indexes {
+    (usuario_id, turma_id) [name: 'uq_acesso_turma_ativo — ÚNICO PARCIAL: WHERE data_fim IS NULL']
+    turma_id
+    usuario_id
+  }
+  Note: '''
+  # Concessão explícita de acesso a turma
+
+  **Define o escopo de turmas de coordenação, direção, secretaria, professor
+  substituto e estagiário** — de todo mundo que não é o professor titular nem
+  responsável por criança matriculada.
+
+  ## Por que nenhum cargo abre atalho
+
+  A coordenadora **não** enxerga todas as turmas por ser coordenadora. Ela
+  enxerga as turmas que constam aqui, concedidas uma a uma, por alguém, numa
+  data, com justificativa.
+
+  Isso não é burocracia: é o que a coordenação real de escola já é. A
+  coordenadora do infantil não coordena o fundamental, e não há motivo para
+  que veja as fotos das crianças de lá. É o princípio da necessidade da LGPD
+  (art. 6º, III — "limitação do tratamento ao mínimo necessário") aplicado ao
+  desenho do sistema, e não apenas citado na revisão.
+
+  ## Efeito colateral favorável
+
+  `concedido_por` e `justificativa` tornam o acesso administrativo auditável.
+  Numa eventual investigação sobre vazamento de imagem, a pergunta "quem podia
+  ver esta foto, e quem autorizou isso?" tem resposta em uma consulta.
+  '''
+}
+
+// =============================================================================
+// 3. ESTRUTURA ESCOLAR
+// =============================================================================
+
+Table ANO_LETIVO {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  escola_id   uuid        [not null, ref: > ESCOLA.id]
+  ano         smallint    [not null]
+  data_inicio date        [not null]
+  data_fim    date        [not null]
+  criado_em   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (escola_id, ano) [unique, name: 'uq_ano_letivo']
+  }
+}
+
+Table TURMA {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  escola_id     uuid        [not null, ref: > ESCOLA.id]
+  ano_letivo_id uuid        [not null, ref: > ANO_LETIVO.id]
+  nome          text        [not null]
+  segmento      text        [not null, note: 'Berçário I, Maternal II, Pré I...']
+  turno         turno_turma [not null]
+  criado_em     timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ano_letivo_id, nome, turno) [unique, name: 'uq_turma']
+  }
+  Note: 'Âncora da audiência: toda postagem pertence a uma turma.'
+}
+
+Table MATRICULA {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  aluno_id    uuid        [not null, ref: > ALUNO.id]
+  turma_id    uuid        [not null, ref: > TURMA.id]
+  data_inicio date        [not null, default: `CURRENT_DATE`]
+  data_fim    date        [note: 'NULL = matrícula ativa']
+  criado_em   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (aluno_id, turma_id) [name: 'uq_matricula_ativa — ÚNICO PARCIAL: WHERE data_fim IS NULL']
+    turma_id
+    aluno_id
+  }
+  Note: 'Permite responder "quem estava nesta turma na data X".'
+}
+
+// =============================================================================
+// 4. CONSENTIMENTO — o núcleo do sistema
+// =============================================================================
+
+Table CONSENTIMENTO {
+  id              uuid                 [pk, default: `gen_random_uuid()`]
+  aluno_id        uuid                 [not null, ref: > ALUNO.id]
+  tipo            tipo_consentimento   [not null]
+  concedido       boolean              [not null]
+  registrado_por  uuid                 [not null, ref: > USUARIO.id, note: 'Quem operou o registro no sistema']
+  responsavel_id  uuid                 [ref: > RESPONSAVEL.id, note: 'Quem manifestou a vontade — LGPD art. 14 §5']
+  origem          origem_consentimento [not null]
+  documento_chave text                 [note: 'Termo digitalizado no object storage']
+  observacao      text
+  vigencia_inicio timestamptz          [not null, default: `now()`]
+  vigencia_fim    timestamptz          [note: 'NULL = vigente']
+  criado_em       timestamptz          [not null, default: `now()`]
+
+  indexes {
+    (aluno_id, tipo) [name: 'uq_consentimento_vigente — ÚNICO PARCIAL: WHERE vigencia_fim IS NULL']
+    (vigencia_inicio, vigencia_fim)
+  }
+  Note: '''
+  # Série temporal, não campo booleano
+
+  Cada mudança de estado gera uma LINHA NOVA. Nada é sobrescrito.
+
+  Um booleano em ALUNO responderia "esta criança pode aparecer?". A LGPD exige
+  responder "esta criança PODIA aparecer na data em que aquela foto foi
+  publicada?", "quem autorizou, quando, com base em qual documento?" e "o que
+  exatamente foi revogado, e a partir de quando?".
+
+  `consentimento_vigente(aluno, tipo, momento)` retorna FALSE na ausência de
+  registro: falha segura, o silêncio nunca vira permissão.
+
+  **Permanece no PostgreSQL, não vai para o MongoDB** — não é log, é dado
+  transacional com integridade referencial.
+  '''
+}
+
+// =============================================================================
+// 5. CONTEÚDO
+// =============================================================================
+
+Table POSTAGEM {
+  id            uuid            [pk, default: `gen_random_uuid()`]
+  turma_id      uuid            [not null, ref: > TURMA.id]
+  autor_id      uuid            [not null, ref: > USUARIO.id]
+  tipo          tipo_postagem   [not null, default: 'REGISTRO_DIARIO']
+  status        status_postagem [not null, default: 'RASCUNHO']
+  titulo        text
+  corpo         text
+  referente_a   date            [not null, default: `CURRENT_DATE`, note: 'O dia retratado']
+  publicado_em  timestamptz
+  criado_em     timestamptz     [not null, default: `now()`]
+  atualizado_em timestamptz     [not null, default: `now()`]
+
+  indexes {
+    (turma_id, publicado_em) [name: 'idx_postagem_feed — caminho quente, WHERE status = PUBLICADA']
+  }
+  Note: 'Row Level Security ativa. A publicação dispara NOTIFICACAO.'
+}
+
+Table POSTAGEM_ALUNO {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  postagem_id uuid        [not null, ref: > POSTAGEM.id]
+  aluno_id    uuid        [not null, ref: > ALUNO.id]
+  criado_em   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (postagem_id, aluno_id) [unique, name: 'uq_postagem_aluno']
+    aluno_id
+  }
+}
+
+Table MIDIA {
+  id                 uuid                 [pk, default: `gen_random_uuid()`]
+  postagem_id        uuid                 [not null, ref: > POSTAGEM.id]
+  chave_original     text                 [not null, note: 'Bucket privado. NUNCA servido a responsáveis.']
+  mime               text                 [not null]
+  bytes              bigint               [not null]
+  largura            integer
+  altura             integer
+  ordem              smallint             [not null, default: 0]
+  status             status_processamento [not null, default: 'PENDENTE']
+  erro_processamento text
+  criado_em          timestamptz          [not null, default: `now()`]
+
+  indexes {
+    (postagem_id, ordem)
+  }
+  Note: 'O original é imutável. Só variantes derivadas são entregues.'
+}
+
+Table MIDIA_VARIANTE {
+  id            uuid                [pk, default: `gen_random_uuid()`]
+  midia_id      uuid                [not null, ref: > MIDIA.id]
+  finalidade    finalidade_variante [not null]
+  chave         text                [not null]
+  hash_politica text                [note: 'Resumo do estado de consentimento no momento da geração']
+  bytes         bigint
+  gerado_em     timestamptz         [not null, default: `now()`]
+
+  indexes {
+    (midia_id, finalidade) [unique, name: 'uq_midia_variante']
+  }
+  Note: '''
+  Se o `hash_politica` atual divergir do armazenado, a variante está obsoleta.
+  É o que torna o reprocessamento por revogação eficiente — evita varrer o
+  acervo inteiro a cada revogação.
+  '''
+}
+
+// =============================================================================
+// 6. NOTIFICAÇÃO — padrão outbox
+// =============================================================================
+
+Table NOTIFICACAO {
+  id           uuid             [pk, default: `gen_random_uuid()`]
+  escola_id    uuid             [not null, ref: > ESCOLA.id]
+  tipo         tipo_notificacao [not null]
+  postagem_id  uuid             [ref: > POSTAGEM.id]
+  relatorio_id uuid             [ref: > RELATORIO_ADAPTACAO.id]
+  assunto      text             [not null]
+  corpo_resumo text             [note: 'Texto curto. NUNCA a foto nem link público para ela.']
+  criado_em    timestamptz      [not null, default: `now()`]
+
+  indexes {
+    postagem_id
+  }
+  Note: '''
+  # O evento de notificação
+
+  ## Decisão de privacidade que deve constar no TCC
+
+  **O e-mail não carrega a foto nem link público para ela.** E-mail escapa
+  por completo do controle de acesso da plataforma: é encaminhado, fica em
+  caixa de entrada de terceiros, é indexado por provedores.
+
+  A mensagem leva apenas o aviso ("há um novo registro da turma do seu filho")
+  e um link que exige autenticação. Todo o controle de audiência e de
+  consentimento continua acontecendo dentro da plataforma.
+  '''
+}
+
+Table NOTIFICACAO_DESTINATARIO {
+  id                    uuid              [pk, default: `gen_random_uuid()`]
+  notificacao_id        uuid              [not null, ref: > NOTIFICACAO.id]
+  usuario_id            uuid              [not null, ref: > USUARIO.id]
+  canal                 canal_notificacao [not null, default: 'EMAIL']
+  endereco              text              [not null, note: 'E-mail no momento do envio — congelado para auditoria']
+  status                status_envio      [not null, default: 'PENDENTE']
+  tentativas            smallint          [not null, default: 0]
+  ultimo_erro           text
+  provedor_mensagem_id  text              [note: 'ID no provedor (SES, Resend...) — correlaciona webhooks de bounce']
+  enviado_em            timestamptz
+  entregue_em           timestamptz
+  criado_em             timestamptz       [not null, default: `now()`]
+
+  indexes {
+    (notificacao_id, usuario_id, canal) [unique, name: 'uq_notificacao_destinatario']
+    status [name: 'idx_envio_pendente — PARCIAL: WHERE status = PENDENTE']
+  }
+  Note: '''
+  # Estado por destinatário — e por que esta tabela é obrigatória
+
+  **Idempotência.** Sem registro, um redeploy ou uma retentativa reenvia a
+  mesma notificação para todos os pais. Constrangedor e difícil de explicar.
+
+  **Prova de entrega.** Quando o responsável disser "não recebi", você tem
+  data, endereço e status.
+
+  **Retentativa com backoff.** Exige estado persistido: `tentativas`,
+  `ultimo_erro`, `status`.
+
+  **Bounce e reclamação de spam.** `provedor_mensagem_id` é o que permite
+  correlacionar o webhook do provedor com o envio e desativar endereços
+  inválidos.
+
+  O endereço é congelado no envio: se o responsável trocar de e-mail depois,
+  a auditoria ainda mostra para onde a mensagem foi.
+  '''
+}
+
+// =============================================================================
+// 7. RELATÓRIO DE ADAPTAÇÃO
+// =============================================================================
+
+Table RELATORIO_ADAPTACAO {
+  id             uuid             [pk, default: `gen_random_uuid()`]
+  aluno_id       uuid             [not null, ref: > ALUNO.id]
+  turma_id       uuid             [not null, ref: > TURMA.id]
+  autor_id       uuid             [not null, ref: > USUARIO.id]
+  periodo_inicio date             [not null]
+  periodo_fim    date             [not null]
+  status         status_relatorio [not null, default: 'RASCUNHO']
+  sintese        text
+  publicado_em   timestamptz
+  criado_em      timestamptz      [not null, default: `now()`]
+  atualizado_em  timestamptz      [not null, default: `now()`]
+
+  indexes {
+    (aluno_id, periodo_inicio)
+  }
+}
+
+Table RELATORIO_ITEM {
+  id           uuid               [pk, default: `gen_random_uuid()`]
+  relatorio_id uuid               [not null, ref: > RELATORIO_ADAPTACAO.id]
+  dimensao     dimensao_adaptacao [not null]
+  nivel        nivel_adaptacao    [not null, default: 'NAO_OBSERVADO']
+  observacao   text
+
+  indexes {
+    (relatorio_id, dimensao) [unique, name: 'uq_relatorio_dimensao']
+  }
+}
+
+// =============================================================================
+// 8. FASE 2 — VISÃO COMPUTACIONAL
+// =============================================================================
+
+Table FACE_REFERENCIA {
+  id           uuid        [pk, default: `gen_random_uuid()`]
+  aluno_id     uuid        [not null, ref: > ALUNO.id]
+  chave_imagem text        [not null]
+  embedding    bytea       [not null]
+  modelo       text        [not null, note: 'ex.: insightface/buffalo_l']
+  dimensoes    smallint    [not null]
+  ativo        boolean     [not null, default: true]
+  criado_em    timestamptz [not null, default: `now()`]
+
+  indexes {
+    aluno_id [name: 'uq_face_referencia_ativa — ÚNICO PARCIAL: WHERE ativo']
+  }
+  Note: '''
+  Só é povoada para alunos com TRATAMENTO_BIOMETRICO vigente.
+
+  Com ~20 identidades por turma, busca linear por similaridade de cosseno no
+  worker basta; não há necessidade de índice vetorial (pgvector).
+  '''
+}
+
+Table MIDIA_FACE {
+  id                 uuid        [pk, default: `gen_random_uuid()`]
+  midia_id           uuid        [not null, ref: > MIDIA.id]
+  bbox_x             integer     [not null]
+  bbox_y             integer     [not null]
+  bbox_largura       integer     [not null]
+  bbox_altura        integer     [not null]
+  confianca_deteccao real        [not null]
+  aluno_id           uuid        [ref: > ALUNO.id, note: 'NULL = detectada mas não reconhecida']
+  similaridade       real
+  confirmado_por     uuid        [ref: > USUARIO.id]
+  confirmado_em      timestamptz
+  criado_em          timestamptz [not null, default: `now()`]
+
+  indexes {
+    midia_id
+  }
+  Note: '''
+  # Arquitetura de falha segura
+
+  Face NÃO reconhecida É BORRADA.
+
+  O NISTIR 8280 (NIST, 2019) constata taxas elevadas de falso positivo em
+  crianças pequenas. Confundir a criança A com a B, quando B tem autorização
+  e A não, expõe a imagem de A — violação de dado sensível de menor, não mero
+  erro de modelo.
+
+  Padrão: borrar; revelar só com correspondência acima do limiar E
+  consentimento vigente.
+  '''
+}
+
+Table REPROCESSAMENTO {
+  id               uuid                 [pk, default: `gen_random_uuid()`]
+  midia_id         uuid                 [not null, ref: > MIDIA.id]
+  motivo           text                 [not null]
+  consentimento_id uuid                 [ref: > CONSENTIMENTO.id]
+  status           status_processamento [not null, default: 'PENDENTE']
+  tentativas       smallint             [not null, default: 0]
+  criado_em        timestamptz          [not null, default: `now()`]
+  concluido_em     timestamptz
+
+  Note: 'Fila do backfill retroativo disparado por revogação de consentimento.'
+}
+
+// =============================================================================
+// AGRUPAMENTOS VISUAIS
+// =============================================================================
+
+TableGroup identidade_e_acesso {
+  ESCOLA
+  PESSOA
+  USUARIO
+  PERFIL
+  USUARIO_PERFIL
+  PERMISSAO
+  PERFIL_PERMISSAO
+}
+
+TableGroup autenticacao {
+  SESSAO
+  API_TOKEN
+}
+
+TableGroup papeis {
+  ALUNO
+  RESPONSAVEL
+  RESPONSAVEL_ALUNO
+  PROFESSOR
+  PROFESSOR_TURMA
+  ACESSO_TURMA
+}
+
+TableGroup estrutura_escolar {
+  ANO_LETIVO
+  TURMA
+  MATRICULA
+}
+
+TableGroup consentimento_lgpd {
+  CONSENTIMENTO
+}
+
+TableGroup conteudo {
+  POSTAGEM
+  POSTAGEM_ALUNO
+  MIDIA
+  MIDIA_VARIANTE
+}
+
+TableGroup notificacao {
+  NOTIFICACAO
+  NOTIFICACAO_DESTINATARIO
+}
+
+TableGroup acompanhamento {
+  RELATORIO_ADAPTACAO
+  RELATORIO_ITEM
+}
+
+TableGroup visao_computacional {
+  FACE_REFERENCIA
+  MIDIA_FACE
+  REPROCESSAMENTO
+}
+
+// =============================================================================
+// MONGODB — coleções de log (fora do modelo relacional)
+// =============================================================================
+// Documentar no capítulo de arquitetura como persistência poliglota:
+// PostgreSQL para dado transacional com integridade referencial; MongoDB para
+// registro append-only de alto volume e schema flexível.
+//
+// Coleção `log_acesso` — ⚠️ ESTA É A EVIDÊNCIA DO SEU CAPÍTULO DE RESULTADOS.
+// Planeje a consulta desde já: a contagem de acessos NEGADOS é o que prova
+// empiricamente que o isolamento por turma funciona.
+// {
+//   _id, ts, usuario_id, pessoa_id, perfil_codigos: [],
+//   recurso: 'MEDIA', recurso_id, acao: 'VIEW',
+//   concedido: false, motivo_negativa: 'FORA_DO_ESCOPO_DE_TURMA',
+//   turma_id_solicitada, turmas_no_escopo: [], ip, user_agent
+// }
+// Índices: { ts: -1 }, { concedido: 1, ts: -1 }, { usuario_id: 1, ts: -1 }
+//
+// Coleção `log_auditoria` — alterações em entidades sensíveis.
+// {
+//   _id, ts, usuario_id, acao: 'REVOGAR',
+//   entidade: 'CONSENTIMENTO', entidade_id,
+//   dados_antes: {}, dados_depois: {}, ip
+// }
+//
+// Coleção `log_aplicacao` — erros, jobs, métricas do worker de visão.
+// {
+//   _id, ts, nivel: 'ERROR', origem: 'worker-visao',
+//   mensagem, contexto: {}, trace_id
+// }
+//
+// TTL: definir política de retenção por coleção. Sugestão: log_aplicacao 90
+// dias; log_acesso e log_auditoria retidos enquanto durar a matrícula.
+// =============================================================================

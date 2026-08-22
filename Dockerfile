@@ -31,6 +31,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
 
+# O migrator lê os .sql em runtime — o tsc não copia nada que não seja TypeScript.
+COPY db ./db
+
 # Diretório de mídia criado com o dono certo ANTES do USER: depois de trocar de usuário o
 # mkdir falharia por permissão.
 RUN mkdir -p /app/uploads && chown -R node:node /app/uploads

@@ -34,6 +34,7 @@ const envSchema = z
     PG_SSL: z.preprocess(blankAsUndefined, z.stringbool().default(false)),
     PG_POOL_MAX: z.coerce.number().int().positive().default(10),
     SQL_LOG_STATEMENTS: z.preprocess(blankAsUndefined, z.stringbool().default(false)),
+    DB_AUTO_MIGRATE: z.preprocess(blankAsUndefined, z.stringbool().optional()),
 
     STORAGE_ROOT: z.string().min(1).default('./uploads'),
     UPLOAD_MAX_FILE_SIZE: z.coerce.number().int().positive().default(10_485_760),
@@ -91,6 +92,10 @@ export const env = {
     ssl: data.PG_SSL,
     poolMax: data.PG_POOL_MAX,
     logStatements: data.SQL_LOG_STATEMENTS,
+    // Migrar a cada boot é conveniente em desenvolvimento e arriscado em produção, onde N
+    // réplicas subindo juntas disputam o mesmo DDL num momento ruim. Lá o caminho é o
+    // `npm run db:migrate` como passo deliberado do deploy.
+    autoMigrate: data.DB_AUTO_MIGRATE ?? data.NODE_ENV !== 'production',
   },
   storage: {
     root: data.STORAGE_ROOT,

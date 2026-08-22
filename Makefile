@@ -1,5 +1,5 @@
 .PHONY: install dev build start lint fix security migrate \
-        db-up db-down db-reset db-wait db-logs db-psql db-migrate \
+        db-up db-down db-reset db-wait db-logs db-psql \
         docker-build docker-run
 
 NODE_ENV ?= development
@@ -9,7 +9,6 @@ TAG      ?= latest
 # O Compose interpola do `.env`, que aqui só tem NODE_ENV — as credenciais estão no
 # `.env.<NODE_ENV>`. Apontar o --env-file mantém compose e app com a MESMA senha.
 COMPOSE  ?= docker compose --env-file .env.$(NODE_ENV)
-PSQL     ?= $(COMPOSE) exec -T postgres psql -v ON_ERROR_STOP=1 -U $(PG_USER) -d $(PG_DB_NAME)
 
 # Lidas do .env.<NODE_ENV> para os alvos que chamam o psql dentro do container.
 PG_USER    ?= $(shell sed -n "s/^PG_USER=//p" .env.$(NODE_ENV))
@@ -46,7 +45,8 @@ db-up:
 db-down:
 	$(COMPOSE) down
 
-# APAGA o volume e sobe de novo — as migrations rodam do zero pelo initdb.
+# APAGA o volume e sobe de novo. O esquema volta na próxima subida da aplicação (ou num
+# `make migrate`): o initdb do Postgres não aplica mais nada.
 db-reset:
 	$(COMPOSE) down -v
 	$(MAKE) db-up
@@ -60,23 +60,13 @@ db-logs:
 db-psql:
 	$(COMPOSE) exec postgres psql -U $(PG_USER) -d $(PG_DB_NAME)
 
-# Reaplica as migrations num banco JÁ inicializado (o initdb não roda de novo). Use quando
-# adicionar uma migration nova sem querer perder os dados. Os scripts não são idempotentes,
-# então rode só a nova: `make db-migrate FILES=db/migrations/004_x.sql`
-FILES ?= $(sort $(wildcard db/migrations/*.sql))
-db-migrate:
-	@for file in $(FILES); do \
-		echo "→ $$file"; \
-		$(PSQL) -f /dev/stdin < $$file || exit 1; \
-	done
-
-# ── Migrations em banco externo (homolog/produção) ────────────────────────────
-# Exige `psql` no host e as PG_* no ambiente. Para o banco local, use db-migrate.
+# ── Migrations ────────────────────────────────────────────────────────────────
+# Cria o banco se ele não existir e aplica só o que ainda não rodou, pela tabela de
+# controle `schema_migration`. É o MESMO código do boot da aplicação — não existe segundo
+# caminho de migration para divergir. O alvo do banco vem das PG_* do .env.$(NODE_ENV),
+# então serve tanto para o local quanto para homologação/produção.
 migrate:
-	@for file in $$(ls db/migrations/*.sql | sort); do \
-		echo "→ $$file"; \
-		psql "postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/$(PG_DB_NAME)" -v ON_ERROR_STOP=1 -f $$file || exit 1; \
-	done
+	npm run db:migrate
 
 # O secret do npmrc é opcional: sem registry privado, o build usa o público.
 docker-build:

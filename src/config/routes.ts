@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Express, Router } from 'express';
@@ -12,6 +12,10 @@ export default async (app: Express): Promise<void> => {
 
   const isCompiled = __dirname.includes('dist');
   const routesDir = resolve(__dirname, '../main/routes');
+
+  // Sem arquivo de rota, o tsc não emite a pasta no dist — e um projeto sem rota nenhuma é
+  // um estado válido enquanto o módulo está sendo reconstruído.
+  if (!existsSync(routesDir)) return;
   const routeFileRegex = isCompiled ? /^[^.].*\.js$/ : /^[^.].*\.ts$/;
 
   const files = readdirSync(routesDir, { recursive: true, encoding: 'utf-8' }).filter(

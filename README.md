@@ -212,9 +212,9 @@ Express 5 e do ESM — estão em **[CLAUDE.md](CLAUDE.md)**.
    define quais turmas um `handle` enxerga (turma de filho matriculado, para responsável;
    turma atribuída, para professor). O controller decide se aplica o recorte, olhando se o
    ator tem a capability no escopo `:any`.
-2. **Banco** — Row Level Security (`db/migrations/003_rls.sql`), como defesa em
+2. **Banco** — Row Level Security (`db/migrations/002_rls.sql`), como defesa em
    profundidade para o caso de uma query nova esquecer o filtro. Ver o `TODO(rls)` no
-   arquivo: ligar exige `SET LOCAL app.actor_handle` por transação no provider.
+   arquivo: ligar exige `SET LOCAL app.usuario_id` por transação no provider.
 
 ---
 
