@@ -2,10 +2,6 @@ import { NextFunction, Request, Response } from 'express';
 import { ValidationError } from '@shared/errors/index.js';
 import { createPostagemSchema } from '@modules/application/dtos/postagens/create-postagem/input.js';
 
-/**
- * A rota é `multipart/form-data` (o `multer` já rodou), então `alunoIds` chega como string.
- * Normaliza ANTES do `strictObject`, que rejeitaria o tipo errado.
- */
 const parseAlunoIds = (raw: unknown): unknown => {
   if (raw === undefined || raw === '') return undefined;
   if (Array.isArray(raw)) return raw;
@@ -16,7 +12,6 @@ const parseAlunoIds = (raw: unknown): unknown => {
     try {
       return JSON.parse(trimmed);
     } catch {
-      // Deixa passar como está: quem produz a mensagem de erro é o Zod, não este helper.
       return raw;
     }
   }
@@ -36,6 +31,6 @@ export function createPostagemValidator(req: Request, _res: Response, next: Next
 
   if (!result.success) throw new ValidationError({ cause: result.error.issues });
 
-  req.body = result.data; // BODY: reatribui o dado coergido/defaultado.
+  req.body = result.data;
   next();
 }

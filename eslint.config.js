@@ -11,13 +11,7 @@ export default tseslint.config(
   prettierConfig,
   {
     files: ['**/*.{ts,js}'],
-    // Os `eslint-disable` de regra de segurança são consumidos pela config isolada de
-    // SAST; aqui, com essas regras desligadas, todos apareceriam como "diretiva não
-    // usada". Este lint não é o gate de segurança, então o relato fica com ele.
     linterOptions: { reportUnusedDisableDirectives: 'off' },
-    // `security` entra registrado mas com as regras DESLIGADAS: o gate de SAST é a
-    // config isolada (`eslint.config.security.js`). Sem registrar o plugin aqui, os
-    // `eslint-disable` de regra de segurança viram erro "rule not found" neste lint.
     plugins: { prettier: prettierPlugin, security },
     rules: {
       'prettier/prettier': 'error',
@@ -31,9 +25,6 @@ export default tseslint.config(
     },
   },
 
-  // Os scripts de db/mongo-init/ rodam no **mongosh**, não no Node: `db` e `print` são
-  // globais do shell do MongoDB. Sem declará-los, o `no-undef` reprova o arquivo inteiro.
-  // Continuam linted (variável não usada, erro de sintaxe) — só os globais são reconhecidos.
   {
     files: ['db/mongo-init/**/*.js'],
     languageOptions: {

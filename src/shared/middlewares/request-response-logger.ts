@@ -21,20 +21,6 @@ interface RequestLogDocument {
   response: { body: unknown };
 }
 
-/**
- * Log de request/response no MongoDB. Três invariantes que NÃO devem ser quebradas:
- *
- * 1. Nunca no caminho da resposta — a escrita acontece em `res.on('finish')`, depois de a
- *    resposta ir ao cliente, e o `insertOne` NÃO é aguardado.
- * 2. Mongo fora não vira erro de request — `getCollection()` devolve `null` e o middleware
- *    desiste em silêncio.
- * 3. Nada de dado sensível — `redact` por nome de chave, `pickHeaders` por allowlist
- *    (`authorization` e `cookie` nunca são gravados) e `truncate` no corpo.
- *
- * PRÉ-REQUISITO DE DEPLOY: nenhum índice é criado pelo código. Antes de ligar em produção,
- * crie o índice TTL — `db.logs.createIndex({ timestamp: 1 }, { expireAfterSeconds: N })` —
- * porque a aplicação nunca remove documento e a coleção cresce indefinidamente.
- */
 export const createRequestResponseLogger = ({
   mongo,
   collection,
@@ -45,8 +31,6 @@ export const createRequestResponseLogger = ({
 
     const startedAt = process.hrtime.bigint();
 
-    // Capturado no INÍCIO, antes de o validator reatribuir `req.body`: o que interessa
-    // auditar é o que o cliente enviou, não o dado coergido.
     const request = {
       headers: pickHeaders(req.headers),
       query: redact(req.query),
@@ -60,8 +44,6 @@ export const createRequestResponseLogger = ({
       const collectionRef = mongo.getCollection<RequestLogDocument>(collection);
       if (!collectionRef) return;
 
-      // O ator é lido AQUI: no `finish` o `injectActor` já resolveu (ou já falhou com 401,
-      // e o log do 401 sem ator também interessa).
       const actor = (req as unknown as Partial<RequestWithContext>).context?.actor ?? null;
 
       const document: RequestLogDocument = {
@@ -75,7 +57,6 @@ export const createRequestResponseLogger = ({
         response: { body: truncate(redact(captured.body), maxBodySizeBytes) },
       };
 
-      // Fire-and-forget: só `.catch()` que loga. Aguardar aqui atrasaria o socket.
       collectionRef.insertOne(document).catch((err) => {
         logger.warn({ err }, 'Falha ao gravar o log de requisição no MongoDB');
       });
@@ -85,10 +66,6 @@ export const createRequestResponseLogger = ({
   };
 };
 
-/**
- * Envelopa `res.json`/`res.send` para capturar o corpo. O Express chama `send` por dentro
- * do `json`, então o `send` só grava se o `json` ainda não gravou.
- */
 const captureResponseBody = (res: Response): { body: unknown } => {
   const captured: { body: unknown } = { body: undefined };
   const originalJson = res.json.bind(res);

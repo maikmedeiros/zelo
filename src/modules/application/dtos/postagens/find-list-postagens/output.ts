@@ -11,7 +11,6 @@ export interface PostagemItemOutput {
   publicadaEm: string;
 }
 
-/** O use-case entrega DADO, não envelope: `items` + `pagination`. O `results` é do controller. */
 export interface FindListPostagensResult {
   items: PostagemItemOutput[];
   pagination: Pagination;

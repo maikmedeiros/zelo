@@ -13,8 +13,6 @@ export class DeletePostagemController implements IController<IHttpRequest<Params
     const { actor } = httpRequest.context;
     const { postagemId } = httpRequest.params;
 
-    // Checagem por RECURSO: o guard recebe o dono já carregado pelo use-case, o que mantém
-    // o `authz` fora da camada de aplicação.
     await this.useCase.execute(postagemId, actor.handle, (ownerHandle) => {
       if (!authz.can(actor, Feature.PostagemDelete, { ownerHandle })) {
         throw new ForbiddenError({
@@ -23,6 +21,6 @@ export class DeletePostagemController implements IController<IHttpRequest<Params
       }
     });
 
-    return { statusCode: 204 }; // 204 sem body — o adapter chama res.end()
+    return { statusCode: 204 };
   }
 }

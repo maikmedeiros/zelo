@@ -10,7 +10,6 @@ export interface FindStatusResult {
   version: string;
   environment: string;
   uptimeSeconds: number;
-  /** `degraded` quando qualquer dependência está fora — o controller traduz em 503. */
   status: 'ok' | 'degraded';
   dependencies: DependencyOutput[];
 }

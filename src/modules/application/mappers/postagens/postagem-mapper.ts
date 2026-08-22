@@ -6,10 +6,6 @@ import { Postagem, PostagemDetalhe } from '../../../domain/entities/postagem.js'
 import { PostagemItemOutput } from '../../dtos/postagens/find-list-postagens/output.js';
 import { PostagemDetalheOutput } from '../../dtos/postagens/find-postagem-by-id/output.js';
 
-/**
- * Contrato da linha do banco: UPPER_SNAKE, o formato bruto do recordset. Mora com o mapper.
- * Query paginada → estende `PaginatedRow`.
- */
 export interface PostagemPersistenceRow extends PaginatedRow {
   ID_POSTAGEM: string;
   TITULO: string;
@@ -51,11 +47,6 @@ export interface PostagemDetalhePersistenceRow {
   ALUNOS_MARCADOS: AlunoMarcadoPersistenceRow[];
 }
 
-/**
- * `fromPersistence` (row → entity) e `toOutput` (entity → DTO) são as ÚNICAS traduções de
- * nome do sistema: é aqui que `UUID`/`ASSUNTO` viram `id`/`titulo`. Fora do mapper, o
- * código só conhece os nomes da aplicação.
- */
 export class PostagemMapper {
   static fromPersistence(row: PostagemPersistenceRow): Postagem {
     return {
@@ -80,8 +71,6 @@ export class PostagemMapper {
 }
 
 export class PostagemDetalheMapper {
-  // Recebe a `publicUrl` porque montar URL de mídia é tradução de saída, não regra de
-  // negócio: a entity guarda só o caminho relativo.
   static fromPersistence(row: PostagemDetalhePersistenceRow, _publicUrl: string): PostagemDetalhe {
     return {
       id: row.ID_POSTAGEM,
@@ -111,8 +100,6 @@ export class PostagemDetalheMapper {
   static toOutput(postagem: PostagemDetalhe, publicUrl: string): PostagemDetalheOutput {
     return {
       ...postagem,
-      // Escape na SAÍDA além da entrada: o acervo é antigo e pode ter linha gravada antes
-      // desta regra existir.
       texto: escapeHtml(postagem.texto),
       midias: postagem.midias.map((midia) => ({
         id: midia.id,

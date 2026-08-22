@@ -1,10 +1,5 @@
 import { collectDefaultMetrics, Histogram, Registry } from 'prom-client';
 
-/**
- * Nomes de métrica, labels e buckets precisam ser IDÊNTICOS aos das outras APIs da casa:
- * o dashboard é único e diferencia pelo label `app`. Divergir num nome tira a API dos
- * painéis sem gerar erro nenhum.
- */
 export class PromMetricsRegistry {
   readonly registry = new Registry();
   readonly httpRequestDuration: Histogram<'method' | 'route' | 'status_code'>;

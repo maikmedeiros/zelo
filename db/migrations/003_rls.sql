@@ -1,17 +1,7 @@
--- Row Level Security como SEGUNDA linha de defesa do isolamento por turma.
---
--- A primeira é a CTE `turma_visivel` em `postagem.repository.ts`. Esta camada existe para
--- o caso de uma query nova esquecer o filtro: defesa em profundidade, não substituição.
---
--- Como funciona: a aplicação declara o ator da requisição em `app.actor_handle` (um GUC de
--- sessão) e as políticas leem esse valor. Cabe ao provider de banco setá-lo por transação.
---
 -- TODO(rls): ligar isto exige um `SET LOCAL app.actor_handle` no início de cada
 -- transação/checkout de conexão do pool. Enquanto não estiver ligado no provider, as
 -- políticas abaixo ficam criadas mas o papel da aplicação continua BYPASSRLS.
 
--- Papel da aplicação. Enquanto a RLS não estiver ligada no provider, ele é dono das
--- tabelas (e portanto ignora políticas), o que mantém o sistema funcionando.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zelo_app') THEN
@@ -25,8 +15,6 @@ LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('app.actor_handle', true), '')
 $$;
 
--- Turmas visíveis ao ator corrente. É a MESMA regra da CTE da aplicação, num só lugar do
--- banco: responsável via filho matriculado, professor via atribuição.
 CREATE OR REPLACE VIEW turma_visivel_atual AS
   SELECT DISTINCT m.turma_id
   FROM usuario u
@@ -41,8 +29,6 @@ CREATE OR REPLACE VIEW turma_visivel_atual AS
 
 ALTER TABLE postagem ENABLE ROW LEVEL SECURITY;
 
--- Perfis com visão global (direcao/coordenacao) passam por esta política; os demais
--- ficam restritos às turmas visíveis.
 CREATE POLICY postagem_audiencia ON postagem
   FOR SELECT
   USING (

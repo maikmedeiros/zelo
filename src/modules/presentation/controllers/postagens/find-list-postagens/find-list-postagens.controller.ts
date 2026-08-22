@@ -13,11 +13,8 @@ export class FindListPostagensController implements IController<
   constructor(private readonly useCase: FindListPostagensUseCase) {}
 
   async handle(httpRequest: IHttpRequest): Promise<IHttpResponse<Paginated<PostagemItemOutput>>> {
-    // Express 5: a query não foi reatribuída pelo validator — re-parseia com o MESMO schema.
     const dto = findListPostagensQuerySchema.parse(httpRequest.query ?? {});
 
-    // Escopo resolvido AQUI (o enum não carrega escopo). Sem `:any`, o ator só enxerga as
-    // turmas às quais está ligado — é o isolamento de audiência.
     const { actor } = httpRequest.context;
     const audienciaHandle = authz.hasAnyScope(actor, Feature.PostagemList)
       ? undefined
@@ -25,6 +22,6 @@ export class FindListPostagensController implements IController<
 
     const { items, pagination } = await this.useCase.execute(dto, audienciaHandle);
 
-    return { statusCode: 200, body: paginated(items, pagination) }; // envelope mora aqui
+    return { statusCode: 200, body: paginated(items, pagination) };
   }
 }

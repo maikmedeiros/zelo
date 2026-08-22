@@ -8,8 +8,6 @@ export class FindStatusController implements IController<IHttpRequest, FindStatu
   async handle(): Promise<IHttpResponse<FindStatusResult>> {
     const body = await this.useCase.execute();
 
-    // 503 no degradado: é o que faz o healthcheck do orquestrador tirar a instância do
-    // balanceador em vez de mandar tráfego para uma API sem banco.
     return { statusCode: body.status === 'ok' ? 200 : 503, body };
   }
 }

@@ -5,17 +5,9 @@ import { logger } from '@shared/utils/logger/index.js';
 import { redact } from '@shared/utils/request-log/index.js';
 
 export interface PostgresDatabaseOptions {
-  logStatements?: boolean; // opt-in por instância; quem liga é config/database.ts
+  logStatements?: boolean;
 }
 
-/**
- * Provider de PostgreSQL sem ORM: SQL cru escrito à mão dentro dos repositórios.
- *
- * A sentença usa parâmetros NOMEADOS (`@nome`), traduzidos aqui para os posicionais do
- * `pg` (`$1`, `$2`). Isso mantém o SQL do repositório legível e — mais importante — torna
- * impossível montar a query por concatenação de valor, que é o que mantém o
- * `p/sql-injection` do Semgrep limpo.
- */
 export class PostgresDatabase implements IDatabaseTransaction {
   private pool: pg.Pool | null = null;
   private readonly ongoingTransaction = new AsyncLocalStorage<pg.PoolClient>();
@@ -25,19 +17,14 @@ export class PostgresDatabase implements IDatabaseTransaction {
     private readonly options: PostgresDatabaseOptions = {},
   ) {}
 
-  // UM Pool por instância, reutilizado. O `pg.Pool` já é lazy e serializa a criação de
-  // conexões internamente, então não há a corrida que o driver do SQL Server tem.
   private getPool(): pg.Pool {
     if (!this.pool) {
       this.pool = new pg.Pool(this.config);
-      // Erro em conexão OCIOSA chega por evento; sem listener o Node derruba o processo.
       this.pool.on('error', (err) => logger.error({ err }, 'Erro em conexão ociosa do PostgreSQL'));
     }
     return this.pool;
   }
 
-  // Um único log, emitido DEPOIS do resultado: imprimir o cabeçalho antes do `await`
-  // intercalaria os blocos de queries concorrentes.
   private logStatement(
     sql: string,
     variables: Record<string, unknown> | undefined,
@@ -49,7 +36,6 @@ export class PostgresDatabase implements IDatabaseTransaction {
     const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
     const lines = ['──────── SQL ────────', sql.trim()];
 
-    // A sentença é texto do próprio código, mas os params carregam dado do request — daí o redact.
     if (variables && Object.keys(variables).length > 0) {
       lines.push(`params: ${JSON.stringify(redact(variables))}`);
     }
@@ -58,11 +44,6 @@ export class PostgresDatabase implements IDatabaseTransaction {
     logger.debug(`\n${lines.join('\n')}`);
   }
 
-  /**
-   * `@nome` → `$n`, na ordem da primeira ocorrência. Um mesmo `@nome` repetido reaproveita
-   * o mesmo `$n`. Nome declarado no SQL e ausente no objeto é erro de programação: falha
-   * alto em vez de mandar `undefined` para o banco.
-   */
   private bindNamedParameters(
     sql: string,
     variables: Record<string, unknown> = {},
@@ -95,22 +76,15 @@ export class PostgresDatabase implements IDatabaseTransaction {
     try {
       const result = await executor.query<T extends pg.QueryResultRow ? T : never>(text, values);
       this.logStatement(sql, variables, startedAt, `rows: ${result.rowCount ?? 0}`);
-      return result.rows as T[]; // devolve SÓ as linhas
+      return result.rows as T[];
     } catch (error) {
-      // Loga e relança: o tratamento continua sendo do error handler global.
       this.logStatement(sql, variables, startedAt, `erro: ${(error as Error).message}`);
       throw error;
     }
   }
 
-  /**
-   * Toda query do `work` entra nesta transação sem recebê-la por parâmetro — é o que permite
-   * um use-case agrupar escritas de repositórios diferentes numa transação só, sem que o
-   * domínio conheça o driver. Como a transação usa UMA conexão, as queries do `work` têm de
-   * ser SEQUENCIAIS: duas em paralelo se atropelam no mesmo client.
-   */
   async transaction<T>(work: () => Promise<T>): Promise<T> {
-    if (this.ongoingTransaction.getStore()) return work(); // já dentro de uma: reentrante
+    if (this.ongoingTransaction.getStore()) return work();
 
     const client = await this.getPool().connect();
     try {
@@ -119,7 +93,6 @@ export class PostgresDatabase implements IDatabaseTransaction {
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      // O rollback falhando não pode encobrir o erro original.
       await client.query('ROLLBACK').catch(() => undefined);
       throw error;
     } finally {
@@ -127,7 +100,6 @@ export class PostgresDatabase implements IDatabaseTransaction {
     }
   }
 
-  /** Usado pelo health check: confirma que o pool responde. */
   async ping(): Promise<void> {
     await this.query('SELECT 1;');
   }

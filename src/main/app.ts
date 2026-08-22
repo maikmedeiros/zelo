@@ -18,15 +18,6 @@ import {
   httpLogger,
 } from '@shared/middlewares/index.js';
 
-/**
- * A ORDEM DESTES MIDDLEWARES É SIGNIFICATIVA. Cada bloco tem um motivo:
- *
- * - `/metrics` vem ANTES do `injectActor`: o scrape do Prometheus é público.
- * - `requestResponseLogger` vem DEPOIS dos body parsers (precisa de `req.body` populado) e
- *   ANTES do `injectActor`, para que o 401 dele também vire log.
- * - `injectActor` é GLOBAL: toda rota é privada. Rota pública, se houver, entra ANTES dele.
- * - `errorHandler` é SEMPRE o último — é o que fecha o "let it throw".
- */
 export const createApp = async (): Promise<Express> => {
   const app = express();
 

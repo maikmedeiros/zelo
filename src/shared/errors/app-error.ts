@@ -3,10 +3,6 @@ export interface AppErrorParams {
   cause?: unknown;
 }
 
-/**
- * Base de todo erro conhecido do sistema. O error handler global usa `statusCode` para
- * responder; qualquer erro que NÃO seja um `AppError` vira 500.
- */
 export abstract class AppError extends Error {
   abstract readonly statusCode: number;
   readonly cause?: unknown;

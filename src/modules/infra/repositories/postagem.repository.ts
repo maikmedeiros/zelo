@@ -16,17 +16,6 @@ import {
   PostagemPersistenceRow,
 } from '../../application/mappers/postagens/postagem-mapper.js';
 
-/**
- * ISOLAMENTO DE AUDIÊNCIA — o requisito de segurança mais crítico do sistema.
- *
- * A CTE resolve, num único lugar, quais turmas um `handle` pode enxergar: turma de filho
- * matriculado (responsável) ou turma atribuída (professor). Toda consulta de postagem
- * passa por ela. Duplicar essa regra em outra query é o caminho para um vazamento — se
- * precisar dela em outro agregado, extraia para uma VIEW no banco, não copie o texto.
- *
- * A segunda linha de defesa é a Row Level Security do próprio PostgreSQL
- * (ver `db/migrations/002_rls.sql`).
- */
 const CTE_TURMA_VISIVEL = `
   WITH turma_visivel AS (
     SELECT m.turma_id
@@ -130,7 +119,6 @@ const SELECT_BY_ID = `
     AND (@audienciaHandle::text IS NULL OR p.turma_id IN (SELECT turma_id FROM turma_visivel));
 `;
 
-// `RETURNING` reprojeta a linha criada — segue o fluxo padrão row → fromPersistence.
 const INSERT_POSTAGEM = `
   INSERT INTO postagem (turma_id, titulo, texto, criado_por)
   VALUES (@turmaId::uuid, @titulo, @texto, @criadoPor)
@@ -141,7 +129,6 @@ const INSERT_POSTAGEM = `
     publicada_em   AS "DATA_PUBLICACAO";
 `;
 
-// `unnest` mantém a escrita em UMA sentença: N alunos marcados, um round-trip.
 const INSERT_POSTAGEM_ALUNO = `
   INSERT INTO postagem_aluno (postagem_id, aluno_id, criado_por)
   SELECT @postagemId::uuid, id, @criadoPor
@@ -166,7 +153,6 @@ const SELECT_AUTOR_HANDLE = `
   WHERE id = @id::uuid AND removida_em IS NULL;
 `;
 
-// Soft delete: o acervo é prova de conformidade, apagar linha destrói a trilha.
 const SOFT_DELETE_POSTAGEM = `
   UPDATE postagem
   SET removida_em = now(), removida_por = @removidoPor
@@ -187,7 +173,6 @@ export class PostagemRepository implements IPostagemRepository {
     const rows = await this.db.query<PostagemPersistenceRow>(SELECT_LIST, {
       page: pagination.page,
       limit: pagination.limit,
-      // Ausência → null EXPLÍCITO. `undefined` chegaria ao driver como parâmetro faltando.
       audienciaHandle: filters.audienciaHandle ?? null,
       turmaIds: filters.turmaIds ?? null,
       alunoId: filters.alunoId ?? null,
@@ -275,8 +260,6 @@ export class PostagemRepository implements IPostagemRepository {
       removidoPor,
     });
 
-    // `RETURNING` vazio ⇒ a linha não existia (ou já estava removida). O `infra` só relata
-    // o fato; quem traduz em 404 é o use-case, dono da regra.
     return rows.length > 0;
   }
 }

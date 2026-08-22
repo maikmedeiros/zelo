@@ -12,8 +12,6 @@ export const makeCreatePostagemController = (): CreatePostagemController => {
   const turmaRepo = new TurmaRepository(db.core);
   const alunoRepo = new AlunoRepository(db.core);
 
-  // `db.core` entra duas vezes com papéis diferentes: como provider dos repositórios e
-  // como `IDatabaseTransaction` do use-case.
   const usecase = new CreatePostagemUseCase(postagemRepo, turmaRepo, alunoRepo, storage, db.core);
 
   return new CreatePostagemController(usecase);

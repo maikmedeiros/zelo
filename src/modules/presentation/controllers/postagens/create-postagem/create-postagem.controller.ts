@@ -10,13 +10,11 @@ export class CreatePostagemController implements IController<IHttpRequest, Creat
   constructor(private readonly useCase: CreatePostagemUseCase) {}
 
   async handle(httpRequest: IHttpRequest): Promise<IHttpResponse<CreatePostagemResult>> {
-    // O body já foi validado e reatribuído pelo validator.
     const dto = httpRequest.body as CreatePostagemInputDTO;
 
     const body = await this.useCase.execute(
       dto,
       toArquivos(httpRequest.files),
-      // Autoria grava o `handle` (identificador estável), NUNCA o `name` (exibição).
       httpRequest.context.actor.handle,
     );
 
@@ -24,7 +22,6 @@ export class CreatePostagemController implements IController<IHttpRequest, Creat
   }
 }
 
-// `upload.array()` popula `req.files` como array; a forma de objeto vem de `upload.fields()`.
 const toArquivos = (files: IHttpRequest['files']): ArquivoRecebido[] => {
   if (!files) return [];
   const list = Array.isArray(files) ? files : Object.values(files).flat();

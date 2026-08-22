@@ -1,9 +1,7 @@
 export interface MidiaOutput {
   id: string;
-  /** URL pública assinável — o caminho relativo do banco nunca sai da aplicação. */
   url: string;
   tipo: string;
-  /** Variante com faces borradas, quando existe. */
   urlVariante: string | null;
 }
 

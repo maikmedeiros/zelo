@@ -1,7 +1,5 @@
 const MASK = '[REDACTED]';
 
-// Comparação normalizada: caixa baixa e sem `-`/`_`, para `x-auth-token` e `novaSenha`
-// caírem na mesma regra que `token` e `senha`.
 const normalize = (key: string): string => key.toLowerCase().replace(/[-_]/g, '');
 
 const EXACT_KEYS = new Set(
@@ -24,7 +22,6 @@ const isSensitive = (key: string): boolean => {
   return EXACT_KEYS.has(normalized) || RADICALS.some((radical) => normalized.includes(radical));
 };
 
-/** Mascara por NOME de chave, recursivamente. Não inspeciona valor. */
 export const redact = (value: unknown, seen: WeakSet<object> = new WeakSet()): unknown => {
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof Date) return value.toISOString();

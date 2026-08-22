@@ -8,8 +8,6 @@ export const createHttpMetrics = (metrics: PromMetricsRegistry): RequestHandler 
     res.on('finish', () => {
       metrics.observeHttpRequest({
         method: req.method,
-        // `req.route?.path` só existe depois do match; `originalUrl` explodiria a
-        // cardinalidade do label com cada id de recurso.
         route: req.route?.path ?? req.baseUrl ?? 'unmatched',
         statusCode: res.statusCode,
         durationSeconds: Number(process.hrtime.bigint() - startedAt) / 1_000_000_000,

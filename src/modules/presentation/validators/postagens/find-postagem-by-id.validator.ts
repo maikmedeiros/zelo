@@ -7,6 +7,5 @@ export function findPostagemByIdValidator(req: Request, _res: Response, next: Ne
 
   if (!result.success) throw new ValidationError({ cause: result.error.issues });
 
-  // PARAMS: só valida, sem reatribuir.
   next();
 }

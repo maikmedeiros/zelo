@@ -1,9 +1,5 @@
 import { IncomingHttpHeaders } from 'node:http';
 
-/**
- * ALLOWLIST, não denylist: header novo não entra no log por acidente. É por isso que
- * `authorization`, `cookie` e `x-api-key` nunca são gravados.
- */
 const ALLOWED = [
   'accept',
   'accept-language',

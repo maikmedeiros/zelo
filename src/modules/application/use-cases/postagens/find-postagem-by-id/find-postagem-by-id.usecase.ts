@@ -12,8 +12,6 @@ export class FindPostagemByIdUseCase {
   async execute(postagemId: string, audienciaHandle?: string): Promise<PostagemDetalheOutput> {
     const postagem = await this.postagemRepo.findById(postagemId, audienciaHandle);
 
-    // 404, não 403: a existência de uma postagem de outra turma é informação que o ator
-    // fora da audiência não deve conseguir inferir.
     if (!postagem) throw new NotFoundError({ message: `Postagem ${postagemId} não encontrada` });
 
     return PostagemDetalheMapper.toOutput(postagem, this.publicUrl);

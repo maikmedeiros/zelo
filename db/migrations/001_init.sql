@@ -1,19 +1,9 @@
--- Schema inicial do Zelo. Aplicar em ordem numérica.
---
--- Convenções: identificadores em snake_case (o alias UPPER_SNAKE das queries vem entre
--- aspas duplas, na projeção); chaves primárias em uuid; `criado_por`/`removido_por`
--- guardam o HANDLE do ator, nunca o nome de exibição.
-
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- ── Identidade e acesso ──────────────────────────────────────────────────────
 
 CREATE TYPE perfil_usuario AS ENUM ('direcao', 'coordenacao', 'professor', 'responsavel');
 
 CREATE TABLE usuario (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  -- Identificador ESTÁVEL do ator. É o que vai para as colunas de autoria e o que o
-  -- escopo `:own` compara. Trocar de handle quebraria a trilha, então é imutável.
   handle      text NOT NULL UNIQUE,
   nome        text NOT NULL,
   email       text NOT NULL UNIQUE,
@@ -26,7 +16,6 @@ CREATE TABLE usuario (
 
 CREATE TABLE sessao (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  -- Só o HASH do token é persistido: um dump do banco não permite assumir sessão.
   token_hash  text NOT NULL UNIQUE,
   usuario_id  uuid NOT NULL REFERENCES usuario (id) ON DELETE CASCADE,
   expira_em   timestamptz NOT NULL,
@@ -47,8 +36,6 @@ CREATE TABLE api_key (
   criado_por  text NOT NULL
 );
 
--- Capabilities COM escopo (`ZELO:postagem:list:group`). O catálogo cru vive no enum
--- `Feature` da aplicação; o escopo é concedido aqui.
 CREATE TABLE perfil_capability (
   perfil     perfil_usuario NOT NULL,
   capability text NOT NULL,
@@ -60,8 +47,6 @@ CREATE TABLE api_key_capability (
   capability text NOT NULL,
   PRIMARY KEY (api_key_id, capability)
 );
-
--- ── Estrutura escolar ────────────────────────────────────────────────────────
 
 CREATE TABLE escola (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -86,7 +71,6 @@ CREATE TABLE aluno (
   escola_id         uuid NOT NULL REFERENCES escola (id) ON DELETE RESTRICT,
   nome              text NOT NULL,
   data_nascimento   date NOT NULL,
-  -- Foto de referência para o reconhecimento em conjunto fechado (Fase 2).
   caminho_referencia text,
   criado_em         timestamptz NOT NULL DEFAULT now(),
   criado_por        text NOT NULL
@@ -102,16 +86,13 @@ CREATE TABLE matricula (
   criado_por text NOT NULL
 );
 
--- Um aluno tem UMA matrícula ativa por vez; o histórico continua na tabela.
 CREATE UNIQUE INDEX idx_matricula_ativa ON matricula (aluno_id) WHERE ativa;
 CREATE INDEX idx_matricula_turma ON matricula (turma_id) WHERE ativa;
 
--- Vínculo N:N: uma criança tem mãe, pai, avó — o modelo precisa suportar.
 CREATE TABLE responsavel_aluno (
   responsavel_id uuid NOT NULL REFERENCES usuario (id) ON DELETE CASCADE,
   aluno_id       uuid NOT NULL REFERENCES aluno (id) ON DELETE CASCADE,
   parentesco     text NOT NULL,
-  -- Quem pode registrar/revogar consentimento de imagem desta criança.
   pode_consentir boolean NOT NULL DEFAULT true,
   criado_em      timestamptz NOT NULL DEFAULT now(),
   criado_por     text NOT NULL,
@@ -128,8 +109,6 @@ CREATE TABLE turma_professor (
   PRIMARY KEY (turma_id, professor_id)
 );
 
--- ── Feed ─────────────────────────────────────────────────────────────────────
-
 CREATE TABLE postagem (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   turma_id      uuid NOT NULL REFERENCES turma (id) ON DELETE RESTRICT,
@@ -137,22 +116,18 @@ CREATE TABLE postagem (
   texto         text NOT NULL,
   publicada_em  timestamptz NOT NULL DEFAULT now(),
   atualizada_em timestamptz,
-  -- Soft delete: o acervo é prova de conformidade, apagar linha destrói a trilha.
   removida_em   timestamptz,
   removida_por  text,
   criado_por    text NOT NULL REFERENCES usuario (handle) ON UPDATE CASCADE
 );
 
--- Índice do feed: filtra por turma e ordena por data, exatamente como a query da lista.
 CREATE INDEX idx_postagem_feed ON postagem (turma_id, publicada_em DESC)
   WHERE removida_em IS NULL;
 
 CREATE TABLE postagem_midia (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   postagem_id      uuid NOT NULL REFERENCES postagem (id) ON DELETE CASCADE,
-  -- Caminho RELATIVO à raiz do storage. Nunca o absoluto, nunca a URL.
   caminho          text NOT NULL,
-  -- Variante derivada com faces borradas (Fase 2). O original nunca é alterado.
   caminho_variante text,
   tipo_mime        text NOT NULL,
   tamanho_bytes    bigint NOT NULL,
@@ -174,13 +149,9 @@ CREATE TABLE postagem_aluno (
 
 CREATE INDEX idx_postagem_aluno_aluno ON postagem_aluno (aluno_id);
 
--- ── Consentimento e conformidade ─────────────────────────────────────────────
-
 CREATE TYPE tipo_consentimento AS ENUM ('interno', 'redes_sociais', 'material_institucional');
 CREATE TYPE origem_consentimento AS ENUM ('app', 'termo_fisico', 'importacao');
 
--- SÉRIE TEMPORAL, não flag. Um booleano `autoriza_imagem` no aluno apagaria a história e
--- impediria a pergunta que importa: "esta criança tinha autorização NA DATA da foto?".
 CREATE TABLE consentimento_imagem (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   aluno_id      uuid NOT NULL REFERENCES aluno (id) ON DELETE CASCADE,
@@ -189,7 +160,6 @@ CREATE TABLE consentimento_imagem (
   concedido     boolean NOT NULL,
   vigencia_inicio timestamptz NOT NULL DEFAULT now(),
   vigencia_fim  timestamptz,
-  -- Handle do responsável que registrou; `revogado_por` fica nulo até a revogação.
   registrado_por text NOT NULL,
   revogado_em   timestamptz,
   revogado_por  text,
@@ -206,7 +176,6 @@ CREATE TABLE relatorio_adaptacao (
   turma_id      uuid NOT NULL REFERENCES turma (id) ON DELETE RESTRICT,
   periodo_inicio date NOT NULL,
   periodo_fim    date NOT NULL,
-  -- Campos estruturados do relatório, versionados pelo próprio conteúdo.
   campos        jsonb NOT NULL DEFAULT '{}'::jsonb,
   criado_em     timestamptz NOT NULL DEFAULT now(),
   criado_por    text NOT NULL,
@@ -214,7 +183,6 @@ CREATE TABLE relatorio_adaptacao (
   CONSTRAINT periodo_coerente CHECK (periodo_fim >= periodo_inicio)
 );
 
--- Trilha de auditoria: prova de conformidade. Nunca sofre UPDATE nem DELETE.
 CREATE TABLE log_auditoria (
   id            bigserial PRIMARY KEY,
   ocorrido_em   timestamptz NOT NULL DEFAULT now(),

@@ -1,4 +1,3 @@
-// Partículas que ficam em caixa baixa no meio do texto (nunca na primeira posição).
 const LOWERCASE_PARTICLES = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
 
 export const toTitleCase = (value: string): string =>
@@ -15,7 +14,6 @@ export const toTitleCase = (value: string): string =>
 
 export const normalizeSpaces = (value: string): string => value.trim().replace(/\s+/g, ' ');
 
-/** Slug ASCII para nome de arquivo e chave de busca. */
 export const slugify = (value: string): string =>
   value
     .normalize('NFD')

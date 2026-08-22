@@ -6,11 +6,6 @@ import { PostagemMapper } from '../../../mappers/postagens/postagem-mapper.js';
 export class FindListPostagensUseCase {
   constructor(private readonly postagemRepo: IPostagemRepository) {}
 
-  /**
-   * `audienciaHandle` vem `undefined` só quando o ator tem a capability no escopo `:any`.
-   * Quem decide isso é o controller — o use-case não conhece autorização, só propaga o
-   * recorte de audiência para o repositório.
-   */
   async execute(
     dto: FindListPostagensInputDTO,
     audienciaHandle?: string,

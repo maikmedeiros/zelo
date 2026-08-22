@@ -1,10 +1,6 @@
 import { PostgresDatabase } from '@shared/infra/database/index.js';
 import { IAlunoRepository } from '../../domain/repositories/i-aluno-repository.js';
 
-/**
- * Anti-join: parte dos ids informados e devolve os que NÃO têm matrícula ativa na turma.
- * Devolver os inválidos (em vez dos válidos) permite ao use-case citar exatamente quais.
- */
 const SELECT_IDS_FORA_DA_TURMA = `
   SELECT informado.id::text AS "ID_ALUNO"
   FROM unnest(@alunoIds::uuid[]) AS informado(id)

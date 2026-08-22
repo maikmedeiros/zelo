@@ -1,12 +1,4 @@
--- Concessão de capabilities por perfil, COM escopo.
---
--- O catálogo cru vive no enum `Feature` (src/config/features.ts); o escopo é decidido aqui.
--- Ao adicionar uma capability ao enum, conceda-a nesta migration.
---
--- Escopos: `any` (tudo), `group` (turmas às quais o ator está ligado), `own` (o que criou).
-
 INSERT INTO perfil_capability (perfil, capability) VALUES
-  -- direcao: visão completa da escola
   ('direcao',      'ZELO:aluno:create:any'),
   ('direcao',      'ZELO:aluno:delete:any'),
   ('direcao',      'ZELO:aluno:list:any'),
@@ -32,7 +24,6 @@ INSERT INTO perfil_capability (perfil, capability) VALUES
   ('direcao',      'ZELO:usuario:read:any'),
   ('direcao',      'ZELO:usuario:update:any'),
 
-  -- coordenacao: opera o pedagógico em todas as turmas, sem mexer na escola
   ('coordenacao',  'ZELO:aluno:create:any'),
   ('coordenacao',  'ZELO:aluno:list:any'),
   ('coordenacao',  'ZELO:aluno:read:any'),
@@ -56,8 +47,6 @@ INSERT INTO perfil_capability (perfil, capability) VALUES
   ('coordenacao',  'ZELO:turma:list:any'),
   ('coordenacao',  'ZELO:turma:read:any'),
 
-  -- professor: escopo `group` — só as turmas atribuídas a ele. Remove `postagem:delete`
-  -- do escopo amplo: professor apaga o que ele mesmo publicou (`own`).
   ('professor',    'ZELO:aluno:list:group'),
   ('professor',    'ZELO:aluno:read:group'),
   ('professor',    'ZELO:consentimento_imagem:read:group'),
@@ -75,8 +64,6 @@ INSERT INTO perfil_capability (perfil, capability) VALUES
   ('professor',    'ZELO:turma:list:group'),
   ('professor',    'ZELO:turma:read:group'),
 
-  -- responsavel: só leitura, e só das turmas dos próprios filhos. O escopo `group` aqui é
-  -- resolvido pela CTE `turma_visivel` — nenhuma capability `:any` para este perfil.
   ('responsavel',  'ZELO:aluno:read:group'),
   ('responsavel',  'ZELO:consentimento_imagem:create:group'),
   ('responsavel',  'ZELO:consentimento_imagem:list:group'),

@@ -4,7 +4,6 @@ export interface TruncatedValue {
   preview: string;
 }
 
-/** Corpo acima do teto vira um resumo — o log não é lugar de guardar payload inteiro. */
 export const truncate = (value: unknown, maxBytes: number): unknown => {
   if (value === undefined || value === null) return value;
 

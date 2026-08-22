@@ -22,13 +22,11 @@ const upload = createUpload({ maxFileSizeBytes: env.storage.maxFileSizeBytes });
 export default (router: Router): void => {
   router.get(
     '/postagens',
-    authz.canRequest(Feature.PostagemList), // 1. autorização (403)
-    findListPostagensValidator, // 2. validação (400)
-    controller(makeFindListPostagensController()), // 3. adapter → IController
+    authz.canRequest(Feature.PostagemList),
+    findListPostagensValidator,
+    controller(makeFindListPostagensController()),
   );
 
-  // Upload: o multer entra ENTRE a autorização e o validator — sem isso o `req.body` do
-  // multipart chega vazio no validator.
   router.post(
     '/postagens',
     authz.canRequest(Feature.PostagemCreate),
@@ -37,7 +35,6 @@ export default (router: Router): void => {
     controller(makeCreatePostagemController()),
   );
 
-  // ROTAS ESTÁTICAS ANTES DE PARAMS — senão `:postagemId` captura o segmento estático.
   router.get(
     '/postagens/:postagemId',
     authz.canRequest(Feature.PostagemRead),

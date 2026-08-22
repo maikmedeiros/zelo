@@ -9,10 +9,6 @@ interface ActorPersistenceRow {
   CAPABILITIES: string[] | null;
 }
 
-/**
- * `array_remove(array_agg(...), NULL)` em vez de `array_agg(... ) FILTER`: um ator sem
- * nenhuma capability precisa continuar existindo (autentica, mas não autoriza nada).
- */
 const SELECT_ACTOR_BY_SESSION = `
   SELECT
     u.id::text                                    AS "ID",

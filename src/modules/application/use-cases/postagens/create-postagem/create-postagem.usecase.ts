@@ -26,7 +26,6 @@ export class CreatePostagemUseCase {
     private readonly turmaRepo: ITurmaRepository,
     private readonly alunoRepo: IAlunoRepository,
     private readonly storage: IFileStorage,
-    // Só a capability transacional, não o provider inteiro.
     private readonly db: IDatabaseTransaction,
   ) {}
 
@@ -39,7 +38,6 @@ export class CreatePostagemUseCase {
       throw new NotFoundError({ message: `Turma ${dto.turmaId} não encontrada` });
     }
 
-    // Marcar aluno de OUTRA turma vazaria a criança para uma audiência que não é a dela.
     const forasteiros = await this.alunoRepo.findIdsForaDaTurma(dto.turmaId, dto.alunoIds);
     if (forasteiros.length > 0) {
       throw new UnprocessableEntityError({
@@ -56,18 +54,12 @@ export class CreatePostagemUseCase {
       });
     }
 
-    // Gravação dos BYTES fora da transação: escrita em disco não faz rollback, e manter
-    // I/O de arquivo dentro do BEGIN prenderia a conexão pelo tempo do upload. Arquivo
-    // órfão (linha nunca criada) é inofensivo — o nome carrega o hash do conteúdo, então
-    // um reenvio reaproveita o mesmo arquivo.
     const midias = await this.salvarArquivos(dto.turmaId, arquivos);
 
     return this.db.transaction(async () => {
-      // Sequenciais: a transação usa UMA conexão.
       const criada = await this.postagemRepo.create({
         turmaId: dto.turmaId,
         titulo: normalizeSpaces(dto.titulo),
-        // Escape na ENTRADA: a API não aceita HTML, e o texto é renderizado no PWA.
         texto: escapeHtml(dto.texto),
         criadoPor,
       });

@@ -7,6 +7,5 @@ export function findListPostagensValidator(req: Request, _res: Response, next: N
 
   if (!result.success) throw new ValidationError({ cause: result.error.issues });
 
-  // QUERY: não reatribui (Express 5 — getter sem setter). O controller re-parseia.
   next();
 }
