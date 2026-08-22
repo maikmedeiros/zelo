@@ -1,0 +1,71 @@
+{
+  "name": "zelo",
+  "version": "1.0.0",
+  "description": "API da plataforma Zelo — comunicação escola-família para educação infantil",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "build": "tsc && tsc-alias",
+    "dev": "tsx watch src/main/start.ts",
+    "dev:sql": "SQL_LOG_STATEMENTS=true npm run dev",
+    "start": "node dist/main/start.js",
+    "lint:prettier:check": "prettier --check .",
+    "lint:prettier:fix": "prettier --write .",
+    "lint:eslint:check": "eslint .",
+    "lint:eslint:fix": "eslint . --fix",
+    "lint:security": "eslint . -c eslint.config.security.js",
+    "scan:semgrep": "semgrep scan --config=p/javascript --config=p/typescript --config=p/nodejs --config=p/expressjs --config=p/sql-injection --config=p/owasp-top-ten --config=p/security-audit --config=p/secrets --error --baseline-commit=origin/main",
+    "scan:semgrep:full": "semgrep scan --config=p/javascript --config=p/typescript --config=p/nodejs --config=p/expressjs --config=p/sql-injection --config=p/owasp-top-ten --config=p/security-audit --config=p/secrets --error",
+    "scan:semgrep:ci": "semgrep scan --config=p/javascript --config=p/typescript --config=p/nodejs --config=p/expressjs --config=p/sql-injection --config=p/owasp-top-ten --config=p/security-audit --config=p/secrets --sarif --output=semgrep.sarif",
+    "audit:deps": "npm audit --audit-level=high",
+    "security:all": "npm run lint:security && npm run scan:semgrep:full && npm run audit:deps"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{md,json,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "mongodb": "^6.19.0",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "pino": "^9.9.0",
+    "pino-http": "^10.5.0",
+    "prom-client": "^15.1.3",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@eslint/js": "^9.34.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.17.2",
+    "@types/pg": "^8.15.5",
+    "eslint": "^9.34.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-security": "^3.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.5",
+    "pino-pretty": "^13.1.1",
+    "prettier": "^3.6.2",
+    "tsc-alias": "^1.9.2",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0"
+  }
+}

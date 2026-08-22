@@ -1,0 +1,66 @@
+name: Semgrep
+
+# TODO(ci): os SHAs das actions abaixo foram escritos sem acesso ao registry. ANTES do
+# primeiro run, confirme cada digest com
+# `gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq .object.sha`.
+# A convenção do projeto é pinar por SHA (nada de @v4): tag é mutável e permite repin
+# silencioso — vetor clássico de supply chain.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  # Rulesets de BACKEND. `p/sql-injection` é crítico: o projeto usa SQL cru, sem ORM.
+  SEMGREP_CONFIGS: >-
+    --config=p/javascript --config=p/typescript --config=p/nodejs
+    --config=p/expressjs --config=p/sql-injection --config=p/owasp-top-ten
+    --config=p/security-audit --config=p/secrets
+
+jobs:
+  # No PR: diff vs base com --error. Bloqueia só finding NOVO — é o que torna o gate
+  # utilizável enquanto o full scan não estiver em zero.
+  diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.12'
+
+      # Versão fixa: um bump de ruleset não pode transformar um PR verde em vermelho sem
+      # ninguém ter mexido no código.
+      - run: pip install semgrep==1.95.0
+
+      - run: git fetch origin ${{ github.base_ref }}
+
+      - name: Scan do diff
+        run: semgrep scan ${{ env.SEMGREP_CONFIGS }} --error --baseline-commit=origin/${{ github.base_ref }}
+
+  # No push para a principal: full SEM --error, e sobe o SARIF para o code scanning.
+  full:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.12'
+
+      - run: pip install semgrep==1.95.0
+
+      - name: Scan completo
+        run: semgrep scan ${{ env.SEMGREP_CONFIGS }} --sarif --output=semgrep.sarif
+
+      - uses: github/codeql-action/upload-sarif@662472033e021d55d94146f66f6058822b0b39fd # v3.27.0
+        with:
+          sarif_file: semgrep.sarif

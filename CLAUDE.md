@@ -1,0 +1,232 @@
+# Convenções e armadilhas — Zelo API
+
+Node.js (ESM) + Express 5 + **TypeScript 6** (`module: NodeNext`), Clean Architecture / DDD,
+Zod 4, PostgreSQL via `pg` **sem ORM**. **Um único módulo de domínio: `zelo`.**
+
+Cada item aqui existe porque a alternativa deu problema. Leia antes de escrever código.
+
+---
+
+## 1. Princípios
+
+1. **Dependência aponta para dentro.** `presentation` → `application` → `domain`; `infra`
+   implementa contratos de `domain`. O `domain` **não importa nada de fora dele**.
+2. **`infra` é a única camada que conhece o banco.** Nenhum `pg` fora de
+   `shared/infra/database/` e `modules/zelo/infra/repositories/`.
+3. **Let it throw.** Ninguém captura erro no caminho da requisição. Regras de negócio
+   **lançam**; o error handler global (último middleware) serializa. No Express 5 a rejeição
+   de handler async é encaminhada sozinha.
+4. **DI manual por factory.** Sem container: `new Repo(db) → new UseCase(repo) → new
+Controller(uc)` dentro de `main/factories/`. O repositório **recebe** o provider por
+   constructor; **nunca** importa o singleton `db`.
+5. **Um arquivo por agregado no `infra`.** Repositório é por conceito
+   (`PostagemRepository`), nunca um god-repo por domínio.
+6. **Envelope de coleção mora na apresentação.** O use-case entrega **dado** (`items` +
+   `pagination`); quem monta `{ results, page, limit, … }` é o controller, via presenter.
+7. **Paginação vem pronta do banco.** A query paginada projeta `PAGINA_ATUAL`,
+   `LIMITE_PAGINA`, `TOTAL_REGISTRO`, `TOTAL_PAGINA`. **Ninguém computa `totalPages` na
+   aplicação.**
+8. **Config valida no boot.** `process.env` passa por um schema Zod; variável faltando ou
+   inválida **lança no boot**. Nada de `undefined` silencioso em runtime.
+9. **Nada de string mágica de permissão.** As capabilities são o enum `Feature`.
+10. **Não antecipe abstração.** Tipo/base compartilhado nasce quando aparece o **primeiro
+    consumidor real**.
+
+---
+
+## 2. Onde cada arquivo mora
+
+- **`domain/` é FLAT.** Entities e interfaces de repositório são compartilhadas entre
+  features, não dependem da URL. Uma entity por conceito; read models distintos por caso de
+  uso quando o formato difere (`Postagem` para a lista, `PostagemDetalhe` para o detalhe) —
+  e cuidado com **colisão de nomes** entre eles.
+- **`application/` e `presentation/` são agrupados por RECURSO, espelhando a URL.** Cada
+  segmento de recurso vira uma pasta e a **feature fica na ponta**. **Params (`:id`) não
+  viram pasta.**
+  - `GET /postagens` → `.../postagens/find-list-postagens/`
+  - `GET /postagens/:postagemId` → `.../postagens/find-postagem-by-id/`
+  - `POST /postagens/:postagemId/comentarios` → `.../postagens/comentarios/create-comentario/`
+- **`infra/repositories/` é 1 arquivo por agregado**, opcionalmente agrupado em pasta por
+  subdomínio. Vários métodos no mesmo repo é OK **se servem o mesmo agregado**.
+- **`main/routes/` e `main/factories/` NÃO têm o segmento do módulo** — só existe um módulo.
+
+## 3. Nomenclatura de features (obrigatória)
+
+| Operação           | Padrão                      | Exemplo                                   |
+| ------------------ | --------------------------- | ----------------------------------------- |
+| Leitura de coleção | `find-list-<recurso>`       | `find-list-postagens`                     |
+| Leitura de item    | `find-<recurso>-by-<campo>` | `find-postagem-by-id`                     |
+| Escrita            | `<verbo>-<recurso>`         | `create-postagem`, `revoke-consentimento` |
+
+**Nunca `get-` nem `list-`.** Os símbolos seguem a feature: `find-list-postagens` →
+`FindListPostagensUseCase`, `FindListPostagensController`, `findListPostagensValidator`,
+`makeFindListPostagensController`.
+
+**Contratos de `domain`/`infra` NÃO seguem a feature** (são compartilhados): o método do
+repositório é `list()` / `findById()`, os tipos são `ListPostagensFilters` /
+`ListPostagensResult`, e entity / mapper / `*PersistenceRow` mantêm o nome do conceito.
+
+---
+
+## 4. ESM / TypeScript
+
+- **Todo import relativo termina em `.js`**, mesmo apontando para um `.ts`. Exigência do
+  `NodeNext`.
+- **Cross-cutting usa alias** (`@shared/*`, `@config/*`, `@main/*`, `@modules/*`); **dentro
+  do módulo**, caminho relativo. O `tsc-alias` reescreve os aliases no build.
+- **Build = typecheck** (`noEmitOnError`). É o gate de correção enquanto não houver testes.
+- Pacote CJS com `.d.ts` em estilo ESM (caso do `pino-http`) pode não expor `default` sob
+  `NodeNext` — use o **named export** (`import { pinoHttp } from 'pino-http'`).
+- **`paths` sem `baseUrl`.** No TS 6 os caminhos são resolvidos relativos ao próprio
+  `tsconfig.json`. `baseUrl` é legado e não sobrevive ao caminho do TS 7 (compilador
+  nativo) — não reintroduza.
+
+## 5. Express 5
+
+- **`req.query` é getter sem setter.** O validator de query faz `safeParse` **sem
+  reatribuir**; o controller **re-parseia** `httpRequest.query` com o mesmo schema. Body
+  pode ser reatribuído.
+- **Rejeição async vai sozinha ao error handler** — é o que sustenta o "let it throw". Não
+  existe `express-async-errors` nem wrapper de try/catch.
+- **Ordem de rotas:** estática antes de param (`/postagens/resumo` antes de
+  `/postagens/:postagemId`).
+- **A ordem dos middlewares em `main/app.ts` é significativa.** Está justificada em
+  comentário no próprio arquivo — leia antes de mexer.
+
+## 6. Erros — let it throw
+
+- Validação Zod → **400** com as `issues` no `cause`.
+- Regra de negócio **lança** a classe adequada (`@shared/errors`). **Nada captura no
+  caminho** — nem o controller, nem o adapter.
+- O handler global serializa `AppError` com o próprio `statusCode`, embrulha o resto em
+  `InternalServerError` (500) e loga tudo. `stack` só fora de produção; `cause` em produção
+  apenas para `ValidationError` (ali é o relatório dos erros do próprio cliente).
+- **O handler não tem efeito colateral**: não mexe em cookie/sessão. Um 401 não prova sessão
+  inválida — quem limpa o cookie é o `injectActor`, que sabe por que falhou.
+
+| Classe                     | Status |
+| -------------------------- | ------ |
+| `ValidationError`          | 400    |
+| `UnauthorizedError`        | 401    |
+| `ForbiddenError`           | 403    |
+| `NotFoundError`            | 404    |
+| `MethodNotAllowedError`    | 405    |
+| `ConflictError`            | 409    |
+| `UnprocessableEntityError` | 422    |
+| `ServiceError`             | 502    |
+| `InternalServerError`      | 500    |
+
+Única exceção documentada ao "let it throw": `StatusRepository.checkDatabase()` captura, de
+propósito — banco fora é o **resultado** da rota de status (503 degradado), não uma falha
+dela.
+
+## 7. Banco
+
+- Repositório acessa o banco **só** via `this.db.query(...)`, com o provider **injetado por
+  constructor**.
+- **Parâmetros sempre nomeados** (`@nome` no SQL + objeto `variables`). O provider traduz
+  para `$1`/`$2`. **Nunca concatene valor em string SQL** — é o que mantém o
+  `p/sql-injection` do Semgrep limpo.
+- **`*PersistenceRow` em UPPER_SNAKE** é o contrato da linha. Como o PostgreSQL dobra
+  identificador não-citado para caixa baixa, o alias vem **entre aspas duplas**
+  (`AS "ID_POSTAGEM"`). Não "melhore" esses nomes fora do mapper.
+- **Ausência → `null` explícito**, nunca `undefined`: o driver trataria `undefined` como
+  parâmetro faltando.
+- **Paginação vem do banco** (`count(*) OVER ()` na CTE filtrada). Ninguém computa
+  `totalPages`.
+- **Transação usa UMA conexão** → as queries dentro do `work` têm de ser **sequenciais**;
+  duas em paralelo se atropelam no mesmo client.
+- Para saber se um `UPDATE`/`DELETE` afetou linha, use **`RETURNING`**: recordset vazio ⇒ o
+  repositório devolve `null`/`false` e o **use-case** traduz em `NotFoundError`.
+- **I/O de arquivo fica FORA da transação.** Escrita em disco não faz rollback, e manter o
+  upload dentro do `BEGIN` prenderia a conexão. Arquivo órfão é inofensivo: o nome carrega o
+  hash do conteúdo, então um reenvio reaproveita o mesmo arquivo.
+
+## 8. Validação de entrada
+
+- **Corpo de escrita (`POST`/`PUT`/`PATCH`) usa `z.strictObject`** — inclusive objetos
+  aninhados. O default do Zod (`strip`) **descarta chave desconhecida em silêncio**: um typo
+  (`alunoId` em vez de `alunoIds`) sumiria sem erro, o campo cairia no `.default([])` e a
+  escrita ficaria silenciosamente incompleta. `strictObject` transforma isso em **400
+  `unrecognized_keys`**. `.default(...)` continua funcionando quando o campo é **omitido** —
+  strict só barra chave **desconhecida**.
+- **Query e params usam `z.object`** (lenientes): a query string acumula lixo incidental
+  (`utm_*`, cache-buster) que não deve virar 400, e params vêm da própria URL.
+- Sempre **`safeParse`**, nunca `.parse` no validator. Em falha,
+  **`throw new ValidationError({ cause: result.error.issues })`** — nada de `res.status(400)`.
+- Regras completas em
+  [`src/modules/zelo/presentation/validators/CLAUDE.md`](src/modules/zelo/presentation/validators/CLAUDE.md).
+
+## 9. Autorização
+
+- `injectActor` é **global** → toda rota é privada. Rota pública, se houver, registre-a
+  **antes** dessa linha em `main/app.ts`.
+- **Por rota:** `authz.canRequest(Feature.X)` como **primeiro middleware** → 403 sem a
+  capability. Recebe a capability **crua**, sem escopo.
+- **Por recurso:** o escopo `:own`/`:group` é resolvido **no controller**, de duas formas:
+  - filtrar a consulta quando o ator não tem `:any`
+    (`authz.hasAnyScope(actor, Feature.X) ? undefined : actor.handle`);
+  - checar o dono do recurso já carregado — o use-case recebe o guard por **callback**,
+    mantendo o `authz` fora da camada de aplicação.
+- Regras do enum em [`src/config/CLAUDE.md`](src/config/CLAUDE.md).
+
+## 10. Autoria e identidade
+
+- **Grave sempre o `actor.handle`, nunca o `name`.** O `handle` é o identificador
+  **estável**; `name` é rótulo de exibição.
+- O escopo `:own` compara `ownerHandle` contra `actor.handle` — o mesmo `handle` serve de
+  autoria e de chave de dono.
+
+## 11. Comentários
+
+Comentário é **exceção**. Antes de escrever um, torne o código claro (nome, tipo, extração
+de função).
+
+- **Explique o "porquê", nunca o "o quê".** Só justifique decisão de negócio, premissa,
+  restrição ou algoritmo não-óbvio.
+- Nada de redundante, nada de código morto comentado, **não assine o código**.
+- **`// TODO(escopo)` é convenção do projeto** — em uso: `TODO(cdn)`, `TODO(rls)`,
+  `TODO(html)`, `TODO(ci)`. Marca o ponto exato de troca.
+- Régua: um módulo bem escrito tende a **zero** comentários. O que fica são coisas como a
+  restrição de ordem de rotas e o rationale do pool.
+
+---
+
+## 12. Checklist para criar uma rota
+
+Antes de codar, tenha respondido: **método e caminho** (sem o prefixo `/v1`, aplicado pelo
+loader); **entrada** (query/body/params, com obrigatoriedade, tipo e regras); **formato exato
+do retorno** (status + JSON); **SQL** (ou a decisão explícita de mockar, com `// TODO(db)`);
+**capability**.
+
+Ordem de criação (cada arquivo depende do anterior):
+
+```
+ 1. config/features.ts              → a capability (+ concessão em db/migrations/002)
+ 2. domain/entities/                → a entity (reuse se já existir)
+ 3. domain/repositories/            → o método na interface do agregado
+ 4. application/dtos/…/input.ts     → schema Zod (strictObject se for corpo de escrita)
+ 5. application/dtos/…/output.ts    → tipo de saída
+ 6. application/mappers/…           → *PersistenceRow + fromPersistence/toOutput
+ 7. application/use-cases/…         → orquestração (lança erro de negócio)
+ 8. infra/repositories/…            → SQL + params nomeados
+ 9. presentation/validators/…       → safeParse + throw ValidationError (+ index.ts)
+10. presentation/controllers/…      → { statusCode, body } (+ envelope, + escopo)
+11. main/factories/…                → DI manual (+ index.ts)
+12. main/routes/<recurso>.routes.ts → canRequest → validator → controller
+```
+
+Verificação:
+
+```bash
+npm run build   # noEmitOnError → build == typecheck
+npm run dev
+```
+
+Depois exercite os casos de erro: **400** (validação), **401** (sem credencial — o
+`injectActor` é global, isso é esperado), **403** (sem capability), **404** (não encontrado).
+
+**Recurso já existe?** Não recrie: adicione a rota ao arquivo existente, o método à interface
+
+- implementação do repositório e o `make*Controller` ao `index.ts`, reaproveitando entity e
+  mapper.

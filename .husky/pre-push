@@ -1,0 +1,7 @@
+npm run lint:security || exit 1
+
+if command -v semgrep >/dev/null 2>&1; then
+  npm run scan:semgrep || exit 1
+else
+  echo "semgrep não instalado — pulando o scan local. A CI é o gate duro."
+fi

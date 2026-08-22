@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "noEmitOnError": true, // build == typecheck: é o gate de correção do projeto
+    // `paths` sem `baseUrl`: resolvidos relativos a ESTE arquivo. `baseUrl` é legado
+    // e some no caminho do TS 7 — não reintroduza.
+    "paths": {
+      "@config/*": ["./src/config/*"],
+      "@main/*": ["./src/main/*"],
+      "@modules/*": ["./src/modules/*"],
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

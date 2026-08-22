@@ -1,0 +1,6 @@
+node_modules/
+dist/
+coverage/
+uploads/
+semgrep.sarif
+package-lock.json

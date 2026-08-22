@@ -1,0 +1,28 @@
+name: Build
+
+# TODO(ci): os SHAs das actions abaixo foram escritos sem acesso ao registry. ANTES do
+# primeiro run, confirme cada digest com
+# `gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq .object.sha`.
+# A convenção do projeto é pinar por SHA (nada de @v4): tag é mutável e permite repin
+# silencioso — vetor clássico de supply chain.
+
+# O build É o gate de correção: o tsc roda com `noEmitOnError`, então build == typecheck.
+on:
+  pull_request:
+  push:
+    branches: [main, staging, develop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions pinadas por SHA — nada de tag mutável (@v4), para evitar repin silencioso.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
