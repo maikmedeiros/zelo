@@ -30,4 +30,26 @@ export default tseslint.config(
       eqeqeq: ['error', 'always'],
     },
   },
+
+  // Os scripts de db/mongo-init/ rodam no **mongosh**, não no Node: `db` e `print` são
+  // globais do shell do MongoDB. Sem declará-los, o `no-undef` reprova o arquivo inteiro.
+  // Continuam linted (variável não usada, erro de sintaxe) — só os globais são reconhecidos.
+  {
+    files: ['db/mongo-init/**/*.js'],
+    languageOptions: {
+      sourceType: 'script',
+      globals: {
+        db: 'readonly',
+        print: 'readonly',
+        printjson: 'readonly',
+        ObjectId: 'readonly',
+        ISODate: 'readonly',
+        UUID: 'readonly',
+        quit: 'readonly',
+        sleep: 'readonly',
+        rs: 'readonly',
+        sh: 'readonly',
+      },
+    },
+  },
 );
