@@ -1,5 +1,5 @@
-# Imagem base ALINHADA ao .nvmrc (lts/jod ↔ node:22-alpine). Ao atualizar, mexa nos dois.
-FROM node:22-alpine AS build
+# Imagem base ALINHADA ao .nvmrc (24 ↔ node:24-alpine). Ao atualizar, mexa nos dois.
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 WORKDIR /app
 

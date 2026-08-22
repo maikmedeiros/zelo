@@ -17,7 +17,7 @@ segmentado por turma e gestão granular de consentimento de uso de imagem.
 ## Como rodar
 
 ```bash
-nvm use                 # lê o .nvmrc (lts/jod — Node 22)
+nvm use                 # lê o .nvmrc (Node 24)
 npm ci
 cp .env.example .env    # e preencha
 make migrate            # aplica db/migrations/*.sql em ordem
@@ -161,7 +161,7 @@ make docker-build   # usa o .npmrc do host como secret do BuildKit (não vira la
 make docker-run
 ```
 
-- Imagem base **alinhada ao `.nvmrc`** (`node:22-alpine` ↔ `lts/jod`). Ao atualizar um,
+- Imagem base **alinhada ao `.nvmrc`** (`node:24-alpine` ↔ `24`). Ao atualizar um,
   atualize o outro.
 - **Nenhuma config por build-arg**: toda variável é injetada em **runtime**.
 - Usuário **não-root** (`USER node`), com `uploads/` criado com o dono correto.
