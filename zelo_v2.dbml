@@ -135,6 +135,13 @@ Enum tipo_notificacao {
   RELATORIO_PUBLICADO
   CONSENTIMENTO_ALTERADO
   COMUNICADO_ESCOLA
+  COMENTARIO_RECEBIDO [note: 'Avisa a autora da postagem que houve um comentário']
+}
+
+Enum status_comentario {
+  PUBLICADO
+  REMOVIDO_PELO_AUTOR
+  REMOVIDO_PELA_ESCOLA [note: 'Moderação — exige motivo registrado']
 }
 
 Enum canal_notificacao {
@@ -688,7 +695,29 @@ Table POSTAGEM {
   indexes {
     (turma_id, publicado_em) [name: 'idx_postagem_feed — caminho quente, WHERE status = PUBLICADA']
   }
-  Note: 'Row Level Security ativa. A publicação dispara NOTIFICACAO.'
+  Note: '''
+  Row Level Security ativa. A publicação dispara NOTIFICACAO.
+
+  # Os três formatos de postagem
+
+  `titulo` e `corpo` são anuláveis e a existência de MIDIA é opcional, de modo
+  que os três formatos são expressos pela mesma estrutura:
+
+  | Formato        | corpo    | MIDIA associada |
+  |----------------|----------|-----------------|
+  | Somente texto  | presente | nenhuma         |
+  | Somente fotos  | nulo     | uma ou mais     |
+  | Texto e fotos  | presente | uma ou mais     |
+
+  **Invariante a garantir na publicação:** uma postagem publicada precisa ter
+  corpo OU pelo menos uma mídia — nunca as duas coisas vazias. A regra cruza
+  duas tabelas, então um CHECK simples não resolve; implemente como trigger
+  na transição para PUBLICADA, além da validação na aplicação. Em RASCUNHO a
+  postagem pode estar vazia.
+
+  Não criei coluna `formato`: ela seria dado derivado, sujeito a divergir do
+  conteúdo real. O formato é consequência do que existe, não um campo à parte.
+  '''
 }
 
 Table POSTAGEM_ALUNO {
@@ -742,7 +771,138 @@ Table MIDIA_VARIANTE {
 }
 
 // =============================================================================
-// 6. NOTIFICAÇÃO — padrão outbox
+// 6. INTERAÇÃO — reações e comentários
+// =============================================================================
+
+Table REACAO {
+  id        smallint    [pk, increment]
+  codigo    varchar(20) [not null, unique, note: 'JOINHA, CORACAO, ROSTINHO_FELIZ']
+  rotulo    text        [not null, note: 'Texto exibido e lido por leitores de tela: "Joinha", "Coração", "Rostinho feliz"']
+  emoji     varchar(8)  [not null, note: 'Múltiplos code points cabem em 8: 👍 ❤️ 🙂']
+  ordem     smallint    [not null, default: 0, note: 'Ordem de exibição no seletor']
+  ativo     boolean     [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+
+  Note: '''
+  # Catálogo de reações — tabela, não enum
+
+  Poderia ser um tipo enumerado do PostgreSQL, e funcionaria. Optei por tabela
+  por três razões práticas:
+
+  **O front-end precisa do emoji e do rótulo.** Com enum, esse mapeamento
+  vira código chumbado na interface. Com tabela, vem da API, e interface e
+  banco nunca divergem.
+
+  **Acessibilidade.** `rotulo` é o texto que leitores de tela anunciam. Emoji
+  sozinho é lido de forma inconsistente entre plataformas.
+
+  **Evolução.** Acrescentar uma quarta reação vira um INSERT, não uma migração
+  de tipo. `ativo` permite aposentar uma reação sem apagar o histórico de quem
+  já a usou — apagar a linha quebraria as reações existentes.
+
+  Chave `smallint` e não UUID: são três linhas, lidas em toda montagem de
+  feed. UUID aqui só gastaria espaço no índice de POSTAGEM_REACAO.
+
+  ## Conteúdo inicial (via seed)
+
+  | id | codigo         | rotulo         | emoji | ordem |
+  |----|----------------|----------------|-------|-------|
+  | 1  | JOINHA         | Joinha         | 👍    | 1     |
+  | 2  | CORACAO        | Coração        | ❤️    | 2     |
+  | 3  | ROSTINHO_FELIZ | Rostinho feliz | 🙂    | 3     |
+  '''
+}
+
+Table POSTAGEM_REACAO {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  postagem_id uuid        [not null, ref: > POSTAGEM.id]
+  usuario_id  uuid        [not null, ref: > USUARIO.id]
+  reacao_id   smallint    [not null, ref: > REACAO.id]
+  criado_em   timestamptz [not null, default: `now()`]
+  alterado_em timestamptz
+
+  indexes {
+    (postagem_id, usuario_id) [unique, name: 'uq_reacao_por_usuario']
+    (postagem_id, reacao_id)  [name: 'idx_reacao_contagem']
+  }
+  Note: '''
+  # Uma reação por pessoa, por postagem
+
+  A restrição única em (postagem_id, usuario_id) significa que cada usuário
+  tem **uma** reação por postagem. Trocar de joinha para coração é um UPDATE
+  do campo `reacao_id`, não uma linha nova — comportamento igual ao das redes
+  sociais que as famílias já conhecem.
+
+  Se você quisesse permitir joinha **e** coração simultâneos da mesma pessoa,
+  bastaria mover `reacao_id` para dentro da chave única. Não recomendo:
+  multiplica a contagem e confunde a leitura do feed.
+
+  ## Contagem
+
+  Não há coluna de contador. Some por `GROUP BY reacao_id` sobre o índice
+  `idx_reacao_contagem`, juntando com REACAO para obter emoji e rótulo. Com o
+  volume de uma escola — dezenas de reações por postagem — isso é irrelevante
+  em desempenho. Contador desnormalizado é otimização prematura e fonte
+  clássica de divergência; se um dia for necessário, vira Projetos Futuros.
+
+  ## Escopo
+
+  Row Level Security herdada da postagem: só reage quem já podia ver. Sem
+  isso, um responsável de outra turma poderia reagir a uma postagem que não
+  enxerga, e a existência da reação vazaria a existência da postagem.
+  '''
+}
+
+Table POSTAGEM_COMENTARIO {
+  id             uuid               [pk, default: `gen_random_uuid()`]
+  postagem_id    uuid               [not null, ref: > POSTAGEM.id]
+  autor_id       uuid               [not null, ref: > USUARIO.id]
+  corpo          text               [not null]
+  status         status_comentario  [not null, default: 'PUBLICADO']
+  removido_por   uuid               [ref: > USUARIO.id]
+  removido_em    timestamptz
+  motivo_remocao text
+  editado_em     timestamptz
+  criado_em      timestamptz        [not null, default: `now()`]
+
+  indexes {
+    (postagem_id, criado_em) [name: 'idx_comentario_postagem']
+    autor_id
+  }
+  Note: '''
+  # Comentário de camada única
+
+  **Não existe coluna de comentário-pai.** É essa ausência que garante a regra
+  de uma só camada: não há como responder a um comentário porque não há onde
+  guardar essa relação.
+
+  Preferi isso a um `comentario_pai_id` anulável com CHECK impedindo o
+  segundo nível. Uma coluna que existe e nunca pode ser usada é convite a que
+  alguém a use daqui a seis meses. Se um dia a resposta encadeada entrar no
+  escopo, ela vem numa migração explícita — e vira Projetos Futuros.
+
+  ## Moderação é requisito, não enfeite
+
+  Comentário é texto escrito por um responsável e lido pelos demais
+  responsáveis da turma, em um espaço sobre crianças. A escola precisa poder
+  remover conteúdo impróprio.
+
+  A remoção é lógica, nunca física: `status`, `removido_por`, `removido_em` e
+  `motivo_remocao`. Apagar a linha destruiria a evidência de que a moderação
+  ocorreu — justamente o que a escola precisaria mostrar se a situação
+  escalasse. O corpo permanece armazenado e deixa de ser servido.
+
+  Vale distinguir os dois casos no enum: o autor apagar o próprio comentário
+  e a escola moderá-lo não são o mesmo fato, e não devem virar o mesmo estado.
+
+  ## Escopo
+
+  Row Level Security herdada da postagem: só comenta quem já podia vê-la.
+  '''
+}
+
+// =============================================================================
+// 7. NOTIFICAÇÃO — padrão outbox
 // =============================================================================
 
 Table NOTIFICACAO {
@@ -813,7 +973,7 @@ Table NOTIFICACAO_DESTINATARIO {
 }
 
 // =============================================================================
-// 7. RELATÓRIO DE ADAPTAÇÃO
+// 8. RELATÓRIO DE ADAPTAÇÃO
 // =============================================================================
 
 Table RELATORIO_ADAPTACAO {
@@ -847,7 +1007,7 @@ Table RELATORIO_ITEM {
 }
 
 // =============================================================================
-// 8. FASE 2 — VISÃO COMPUTACIONAL
+// 9. FASE 2 — VISÃO COMPUTACIONAL
 // =============================================================================
 
 Table FACE_REFERENCIA {
@@ -959,6 +1119,12 @@ TableGroup conteudo {
   POSTAGEM_ALUNO
   MIDIA
   MIDIA_VARIANTE
+}
+
+TableGroup interacao {
+  REACAO
+  POSTAGEM_REACAO
+  POSTAGEM_COMENTARIO
 }
 
 TableGroup notificacao {
