@@ -16,7 +16,7 @@ interface RequestLogDocument {
   path: string;
   statusCode: number;
   durationMs: number;
-  actor: { id: string; handle: string; kind: string } | null;
+  actor: { id: string; name: string; kind: string } | null;
   request: { headers: Record<string, unknown>; query: unknown; params: unknown; body: unknown };
   response: { body: unknown };
 }
@@ -52,7 +52,7 @@ export const createRequestResponseLogger = ({
         path: req.originalUrl,
         statusCode: res.statusCode,
         durationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
-        actor: actor ? { id: actor.id, handle: actor.handle, kind: actor.kind } : null,
+        actor: actor ? { id: actor.id, name: actor.name, kind: actor.kind } : null,
         request,
         response: { body: truncate(redact(captured.body), maxBodySizeBytes) },
       };

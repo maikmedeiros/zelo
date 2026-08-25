@@ -1,4 +1,5 @@
 import express, { Express } from 'express';
+import authz from '@config/authz.js';
 import { db } from '@config/database.js';
 import { env } from '@config/env.js';
 import { metrics } from '@config/metrics.js';
@@ -44,9 +45,8 @@ export const createApp = async (): Promise<Express> => {
     );
   }
 
-  // TODO(authz): `injectActor` era global aqui — toda rota nascia privada. Saiu junto com o
-  // ActorRepository, que consultava o esquema v1. Ao reconstruir o ator sobre o modelo v2,
-  // esta linha volta ANTES do setupRoutes, senão as rotas novas nascem públicas.
+  app.use(authz.injectActor);
+
   await setupRoutes(app);
 
   app.use(createGlobalErrorHandler(env.isProduction));

@@ -22,7 +22,7 @@ const envSchema = z
     PUBLIC_URL: z.url(),
     ALLOW_ORIGIN_LIST: z.preprocess(csvList, z.array(z.string().min(1)).default([])),
 
-    API_KEY_PREFIX: z.string().min(1),
+    API_TOKEN_PREFIX: z.string().min(1),
     SESSION_COOKIE_NAME: z.enum(['ZELO_APP', 'ZELO_APP_STAGING', 'ZELO_APP_DEV']),
     SESSION_COOKIE_DOMAIN: z.preprocess(blankAsUndefined, z.string().min(1).optional()),
 
@@ -78,7 +78,7 @@ export const env = {
   port: data.PORT,
   publicUrl: data.PUBLIC_URL,
   cors: { allowedOrigins: data.ALLOW_ORIGIN_LIST },
-  apiKey: { prefix: data.API_KEY_PREFIX },
+  apiToken: { prefix: data.API_TOKEN_PREFIX },
   session: {
     cookieName: data.SESSION_COOKIE_NAME,
     cookieDomain: data.SESSION_COOKIE_DOMAIN,
