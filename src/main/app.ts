@@ -3,7 +3,7 @@ import authz from '@config/authz.js';
 import { db } from '@config/database.js';
 import { env } from '@config/env.js';
 import { metrics } from '@config/metrics.js';
-import setupRoutes from '@config/routes.js';
+import { setupPrivateRoutes, setupPublicRoutes } from '@config/routes.js';
 import {
   bodyParserJson,
   bodyParserRaw,
@@ -45,9 +45,11 @@ export const createApp = async (): Promise<Express> => {
     );
   }
 
+  await setupPublicRoutes(app);
+
   app.use(authz.injectActor);
 
-  await setupRoutes(app);
+  await setupPrivateRoutes(app);
 
   app.use(createGlobalErrorHandler(env.isProduction));
 
