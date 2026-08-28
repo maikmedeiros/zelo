@@ -21,17 +21,17 @@ Migrations `001`–`004` aplicadas. `src/modules/` tem **um** recurso: `sessions
 `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas montadas antes
 dele. `npm run build`, `lint:eslint:check` e `lint:security` passam limpos.
 
-| Fase                          | Estado                                      |
-| ----------------------------- | ------------------------------------------- |
-| 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2)   |
-| 1 — Login e sessão            | ✅ concluída e verificada                   |
-| 1b — CRUD de tokens de API    | ⬜ **próxima**                              |
-| 2 — Postagens                 | ⬜ (2.1 ✅ — seed de demonstração aplicado) |
-| 3 — Cadastros                 | ⬜                                          |
-| 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)                 |
-| 4 — Conteúdo e interação      | ⬜                                          |
-| 5 — Consentimento e relatório | ⬜                                          |
-| 6 — RLS                       | ⬜                                          |
+| Fase                          | Estado                                    |
+| ----------------------------- | ----------------------------------------- |
+| 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2) |
+| 1 — Login e sessão            | ✅ concluída e verificada                 |
+| 1b — CRUD de tokens de API    | ⬜ **próxima**                            |
+| 2 — Postagens                 | 🔶 2.1, 2.2 e 2.3 ✅ — falta 2.4 e 2.5    |
+| 3 — Cadastros                 | ⬜                                        |
+| 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)               |
+| 4 — Conteúdo e interação      | ⬜                                        |
+| 5 — Consentimento e relatório | ⬜                                        |
+| 6 — RLS                       | ⬜                                        |
 
 Verificação da Fase 1 executada contra `localhost:3003`, com o administrador de bootstrap:
 `201` no login (com `Set-Cookie` httpOnly), `200` no `sessions/current` (69 capabilities,
@@ -251,11 +251,42 @@ conteúdo de turma é `TURMA` inclusive para a coordenação; `ESCOLA` só em ca
 configuração. Eles **não** substituem a Fase 3b — os definitivos terão `escola_id NULL` e,
 pelo índice `NULLS NOT DISTINCT`, convivem com estes sem colidir.
 
-**2.2 — `GET /posts`** com a CTE de escopo **inline** no `PostRepository`, parametrizada por
-`@usuarioId`.
+**2.2 — `GET /posts`** ✅ Os 12 arquivos do §12, com a CTE de escopo **inline** no
+[post.repository.ts](src/modules/infra/repositories/post.repository.ts), parametrizada por
+`@viewerId`.
 
-**2.3 — Rodar o teste dos dois atores** (200 e 404, detalhado em Verificação). É aqui que a
-regra de escopo é validada, ainda concentrada em um lugar só.
+Query: `page` (default 1), `limit` (default 20, teto 100), `classId` e `type`, todos
+opcionais. Sem `classId` vem o feed de **todas** as turmas do ator; com ele, restringe — e
+pedir uma turma fora do escopo devolve lista **vazia**, não 403: negar explicitamente
+confirmaria que a turma existe.
+
+Decisões tomadas aqui, que valem para as próximas rotas:
+
+- **Só `PUBLICADA`.** Rascunho é do autor e depende de checagem de dono; entra na 2.5, junto
+  com as escritas.
+- **Escopo binário**, como manda o [CLAUDE.md](CLAUDE.md) §9: `ESCOLA` → `viewerId = null`
+  (sem recorte); qualquer outra coisa → recorte pela CTE. `PROPRIA` em `VIEW:POST` não é
+  modelada — ninguém concede, e inventar o caso agora seria abstração antecipada.
+- **`z.guid()`, não `z.uuid()`.** O Zod 4 valida versão e variante RFC 4122 no `z.uuid()`, e
+  os UUID sentinela do projeto (a escola padrão da `004`, todo o seed) são reprovados por
+  ele — um `:id` vindo do próprio banco voltaria como 400. A regra está registrada em
+  [validators/CLAUDE.md](src/modules/presentation/validators/CLAUDE.md).
+- **`to_char(referente_a, 'YYYY-MM-DD')`** no SQL: o driver converteria `date` para um
+  `Date` na meia-noite local, e o dia mudaria conforme o fuso.
+
+**2.3 — Rodar o teste dos dois atores** ✅ Resultado, com as seis sessões:
+
+| Ator    | Origem do escopo    | Vê                       |
+| ------- | ------------------- | ------------------------ |
+| `admin` | abrangência ESCOLA  | as duas postagens        |
+| `ana`   | `PROFESSOR_TURMA`   | só a da Turma A          |
+| `bruno` | `RESPONSAVEL_ALUNO` | só a da Turma A          |
+| `diana` | `ACESSO_TURMA`      | só a da Turma A          |
+| `carla` | `RESPONSAVEL_ALUNO` | só a da Turma B          |
+| `elias` | nenhuma             | nada (`totalResults: 0`) |
+
+O rascunho da Turma A não aparece para ninguém, e o `fabio` (sem perfil) recebe 403 — o que
+separa "faltou capability" de "o recorte funcionou".
 
 **2.4 — `GET /posts/:postId` e extração da CTE** para
 `src/modules/infra/repositories/sql/turma-escopo.ts` — as três origens do vínculo, para os

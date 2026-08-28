@@ -12,9 +12,10 @@
 --   RESPONSAVEL_ALUNO → MATRICULA   → Bruno (pai do Théo, Turma A)
 --   PROFESSOR_TURMA                 → Ana (titular da Turma A)
 --   ACESSO_TURMA                    → Diana (coordenação, acesso à Turma A)
--- Mais os dois controles negativos: Carla (vínculo só com a Turma B) e Elias (sem vínculo
--- nenhum). Elias é o caso mais importante — ele TEM a capability `VIEW:POST`, então uma
--- falha de escopo aparece como 200 indevido, não como 403.
+-- Mais os três controles negativos: Carla (vínculo só com a Turma B), Elias (sem vínculo
+-- nenhum) e Fábio (sem perfil nenhum). Elias é o caso mais importante — ele TEM a
+-- capability `VIEW:POST`, então uma falha de escopo aparece como 200 indevido, não como
+-- 403. O Fábio é o oposto: sem capability, é ele quem exercita o 403 de qualquer rota.
 --
 -- Idempotente: UUIDs fixos e ON CONFLICT DO NOTHING em tudo. Pode rodar quantas vezes
 -- quiser sem duplicar linha.
@@ -65,7 +66,8 @@ INSERT INTO pessoa (id, escola_id, nome, data_nascimento, email_contato) VALUES
   ('33333333-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'Diana Esteves',    DATE '1983-07-05', 'diana@zelo.test'),
   ('33333333-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', 'Elias Faria',      DATE '1986-11-17', 'elias@zelo.test'),
   ('33333333-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'Théo Carvalho',    DATE '2023-03-08', NULL),
-  ('33333333-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'Lívia Duarte',     DATE '2022-06-19', NULL)
+  ('33333333-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'Lívia Duarte',     DATE '2022-06-19', NULL),
+  ('33333333-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', 'Fábio Gomes',      DATE '1994-02-14', 'fabio@zelo.test')
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -79,7 +81,9 @@ INSERT INTO usuario (id, pessoa_id, email, senha_hash, email_verificado) VALUES
   ('44444444-0000-0000-0000-000000000002', '33333333-0000-0000-0000-000000000002', 'bruno@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$Tu4+RLi8XrGFyLwVHwL8Gw$PXHunRdhPN8aPpnemqRcFfTkJqNIeycTTJWLH+Py4Ow', true),
   ('44444444-0000-0000-0000-000000000003', '33333333-0000-0000-0000-000000000003', 'carla@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$IitdNDwqNbBGeP+P7JGrZg$tm9ZtmRDbZyYWuhPlbSu+UpzvoQsAQrWgbVvcj810Cc', true),
   ('44444444-0000-0000-0000-000000000004', '33333333-0000-0000-0000-000000000004', 'diana@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$8JOZye8uxdTk+xL30RoXjQ$0ZtNzjv4InwuJdE/1zMY3gbS3rpg8oSo/MU1ZeffXXw', true),
-  ('44444444-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005', 'elias@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2HDHI2bpbcybMmhzB6v1tA$b+QVfUWNC7DTpapLoTSiUkK1LmgyfgmuU2mN1Y90zsI', true)
+  ('44444444-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005', 'elias@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2HDHI2bpbcybMmhzB6v1tA$b+QVfUWNC7DTpapLoTSiUkK1LmgyfgmuU2mN1Y90zsI', true),
+  -- Sem linha em USUARIO_PERFIL de propósito: loga, mas não tem capability nenhuma.
+  ('44444444-0000-0000-0000-000000000008', '33333333-0000-0000-0000-000000000008', 'fabio@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$IauyeR3mjQZzuErJdjitBg$jH8lD3AvhSjz8jrxKcYBohAeOo56os2XG9K/tRzYh8w', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================

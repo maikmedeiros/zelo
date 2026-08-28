@@ -28,6 +28,16 @@ apenas o aplica.
 - Query e params: **`z.object`** (lenientes) — a query string acumula lixo incidental
   (`utm_*`, cache-buster) que não deve virar 400, e params vêm da própria URL.
 
+## Identificador: `z.guid()`, nunca `z.uuid()`
+
+No Zod 4 o `z.uuid()` valida os nibbles de **versão e variante** da RFC 4122. As colunas
+`uuid` do PostgreSQL não validam nada disso, e o projeto usa UUID sentinela — a escola
+padrão é `00000000-0000-0000-0000-000000000001`, e o `db/seeds/demo.sql` segue o mesmo
+padrão legível. Todos eles são **reprovados** pelo `z.uuid()`.
+
+Resultado: um `:id` que o banco emitiu voltaria como 400. Use **`z.guid()`**, que valida só
+o formato 8-4-4-4-12 — exatamente o que a coluna aceita.
+
 ## Upload
 
 Quando a rota recebe `multipart/form-data`, o `multer` já rodou (ele entra entre a
