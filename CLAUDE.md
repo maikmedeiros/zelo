@@ -12,7 +12,7 @@ Cada item aqui existe porque a alternativa deu problema. Leia antes de escrever 
 1. **Dependência aponta para dentro.** `presentation` → `application` → `domain`; `infra`
    implementa contratos de `domain`. O `domain` **não importa nada de fora dele**.
 2. **`infra` é a única camada que conhece o banco.** Nenhum `pg` fora de
-   `shared/infra/database/` e `modules/zelo/infra/repositories/`.
+   `shared/infra/database/` e `modules/infra/repositories/`.
 3. **Let it throw.** Ninguém captura erro no caminho da requisição. Regras de negócio
    **lançam**; o error handler global (último middleware) serializa. No Express 5 a rejeição
    de handler async é encaminhada sozinha.
@@ -90,8 +90,9 @@ repositório é `list()` / `findById()`, os tipos são `ListPostagensFilters` /
   existe `express-async-errors` nem wrapper de try/catch.
 - **Ordem de rotas:** estática antes de param (`/postagens/resumo` antes de
   `/postagens/:postagemId`).
-- **A ordem dos middlewares em `main/app.ts` é significativa.** Está justificada em
-  comentário no próprio arquivo — leia antes de mexer.
+- **A ordem dos middlewares em `main/app.ts` é significativa** e não está comentada no
+  arquivo: os body parsers vêm antes do logger de request/response (que precisa de
+  `req.body`), e as rotas públicas antes do `injectActor`. Ver §9.
 
 ## 6. Erros — let it throw
 
@@ -155,27 +156,36 @@ dela.
 - Sempre **`safeParse`**, nunca `.parse` no validator. Em falha,
   **`throw new ValidationError({ cause: result.error.issues })`** — nada de `res.status(400)`.
 - Regras completas em
-  [`src/modules/zelo/presentation/validators/CLAUDE.md`](src/modules/zelo/presentation/validators/CLAUDE.md).
+  [`src/modules/presentation/validators/CLAUDE.md`](src/modules/presentation/validators/CLAUDE.md).
 
 ## 9. Autorização
 
-- `injectActor` é **global** → toda rota é privada. Rota pública, se houver, registre-a
-  **antes** dessa linha em `main/app.ts`.
+- `injectActor` é **global** → toda rota nasce privada. Rota pública mora em
+  `main/routes/publicas/`, que o loader monta **antes** dessa linha. A pasta é a declaração:
+  não existe sinalizador nem lista. A granularidade é o **arquivo**, então login (público) e
+  logout (privado) ficam em arquivos separados, apesar de serem o mesmo recurso.
+- Arquivo em `publicas/` **não pode usar `canRequest`** — sem ator no contexto ele lança 500,
+  de propósito, acusando a inversão.
 - **Por rota:** `authz.canRequest(Feature.X)` como **primeiro middleware** → 403 sem a
-  capability. Recebe a capability **crua**, sem escopo.
-- **Por recurso:** o escopo `:own`/`:group` é resolvido **no controller**, de duas formas:
-  - filtrar a consulta quando o ator não tem `:any`
-    (`authz.hasAnyScope(actor, Feature.X) ? undefined : actor.handle`);
-  - checar o dono do recurso já carregado — o use-case recebe o guard por **callback**,
-    mantendo o `authz` fora da camada de aplicação.
+  capability. Recebe a capability **crua** (`ACAO:RECURSO`), sem abrangência.
+- **Por recurso:** a abrangência `PROPRIA`/`TURMA`/`ESCOLA` é resolvida **no controller**, de
+  duas formas:
+  - filtrar a consulta quando o ator não tem `ESCOLA`
+    (`authz.scopesOf(actor, Feature.X).includes('ESCOLA') ? undefined : actor.id`);
+  - checar o dono do recurso já carregado com `authz.can(actor, Feature.X, { ownerId, groupId })`
+    — o use-case recebe o guard por **callback**, mantendo o `authz` fora da aplicação.
+- `groupId` é a **turma**. O ator carrega `groups` com as turmas resolvidas pelas três
+  origens do modelo: filho matriculado, `PROFESSOR_TURMA` e `ACESSO_TURMA`.
 - Regras do enum em [`src/config/CLAUDE.md`](src/config/CLAUDE.md).
 
 ## 10. Autoria e identidade
 
-- **Grave sempre o `actor.handle`, nunca o `name`.** O `handle` é o identificador
-  **estável**; `name` é rótulo de exibição.
-- O escopo `:own` compara `ownerHandle` contra `actor.handle` — o mesmo `handle` serve de
-  autoria e de chave de dono.
+- **Grave sempre o `actor.id`, nunca o `name`.** O `id` é `usuario.id`, o identificador
+  **estável**; `name` é rótulo de exibição. O modelo v2 não tem `handle`.
+- A abrangência `PROPRIA` compara `ownerId` contra `actor.id` — o mesmo `id` serve de autoria
+  (`postagem.autor_id`, `consentimento.registrado_por`) e de chave de dono.
+- Token de API autentica **como** o usuário dono: mesmo `id`, mesmas permissões. Só o
+  `actor.kind` muda.
 
 ## 11. Comentários
 
@@ -202,7 +212,8 @@ do retorno** (status + JSON); **SQL** (ou a decisão explícita de mockar, com `
 Ordem de criação (cada arquivo depende do anterior):
 
 ```
- 1. config/features.ts              → a capability (+ concessão em db/migrations/002)
+ 1. config/features.ts              → a capability (+ linha em PERMISSAO e concessão em
+                                      PERFIL_PERMISSAO, numa migration nova)
  2. domain/entities/                → a entity (reuse se já existir)
  3. domain/repositories/            → o método na interface do agregado
  4. application/dtos/…/input.ts     → schema Zod (strictObject se for corpo de escrita)

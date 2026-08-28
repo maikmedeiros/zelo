@@ -5,32 +5,36 @@ controller, rota ou use-case.
 
 ## Formato
 
-`APP:objeto:ação`
+`ACAO:RECURSO` — espelha exatamente `PERMISSAO.codigo`.
 
-- `APP` em `UPPER_SNAKE` (aqui, sempre `ZELO` — mas mantenha o prefixo, é o que permite um
-  segundo domínio entrar depois **sem renomear capability em produção**).
-- `objeto` e `ação` em `snake_case`.
-- A **chave** do enum é `PascalCase` espelhando objeto + ação:
-  `consentimento_imagem` + `revoke` → `ConsentimentoImagemRevoke`.
+- Ambos em `UPPER_SNAKE`, em inglês, como o modelo declara.
+- As **seis ações são fechadas**: `CREATE`, `VIEW`, `UPDATE`, `DELETE`, `PUBLISH`, `REVOKE`.
+  Nada fora dessa lista.
+- `VIEW` cobre listagem **e** leitura de item. Quem separa o que o ator enxerga é a
+  abrangência, não a ação — separar `list` de `read` dobraria o catálogo sem separar nada.
+- A **chave** do enum é `PascalCase` espelhando recurso + ação:
+  `CONSENT` + `REVOKE` → `ConsentRevoke`.
 
-## O escopo NÃO entra no enum
+## A abrangência NÃO entra no enum
 
-`:own`, `:group` e `:any` vivem nas strings que o **ator possui**
-(`ZELO:postagem:list:group`), não no catálogo. `canRequest(Feature.X)` e
-`can(actor, Feature.X, resource)` recebem a capability **crua**.
+`PROPRIA`, `TURMA` e `ESCOLA` vivem em `PERFIL_PERMISSAO.abrangencia`, na concessão, e
+chegam ao ator como `ACAO:RECURSO:ABRANGENCIA`. `canRequest(Feature.X)` e
+`can(actor, Feature.X, resource)` recebem a capability **crua** — passar uma com abrangência
+lança 500.
 
-Motivo: uma capability com escopo no enum multiplicaria cada entrada por três e ainda
-obrigaria o controller a escolher qual constante usar — o escopo é decisão de runtime.
+Motivo: a abrangência no enum multiplicaria cada entrada por três e ainda obrigaria o
+controller a escolher qual constante usar — ela é decisão de runtime, e da concessão.
+
+A regra que o modelo não admite violar: **conteúdo de turma é abrangência `TURMA` para todo
+perfil, inclusive direção.** Quem enxerga mais turmas tem mais linhas em `ACESSO_TURMA` — o
+cargo não abre atalho. `ESCOLA` fica reservada a cadastro e configuração.
 
 ## Organização do arquivo
 
-1. Agrupar por domínio (prefixo `APP`), uma linha em branco entre domínios.
-2. Comentário de cabeçalho por domínio: `// APP — descrição curta`.
-3. Ordem alfabética em dois níveis: domínios entre si; dentro de cada um, por objeto e
-   depois por ação.
-4. Agrupar por objeto, uma linha em branco entre objetos, com `// objeto: descrição curta`
-   acima do bloco. Objetos de nome parecido (`postagem` × `postagem_midia`) são blocos
-   **separados**.
+1. Agrupar por **recurso**, uma linha em branco entre recursos.
+2. Ordem alfabética em dois níveis: recursos entre si; dentro de cada um, por ação.
+3. Recursos de nome parecido (`CLASS` × `CLASS_ACCESS`, `REACTION` × `REACTION_TYPE`) são
+   blocos **separados**.
 
 ## Crescimento
 
@@ -43,5 +47,10 @@ Troca deliberada; não antecipe.
 ## Ao adicionar uma capability
 
 1. Adicione a entrada no enum, na posição alfabética correta.
-2. Conceda-a aos perfis em `db/migrations/` (tabela `perfil_capability`), **com escopo**.
+2. Numa **migration nova**: insira a linha em `PERMISSAO` e conceda aos perfis em
+   `PERFIL_PERMISSAO`, **com abrangência**. A `004` roda uma vez — capability nova não chega
+   sozinha aos perfis existentes.
 3. Use `authz.canRequest(Feature.X)` como primeiro middleware da rota.
+
+O enum e a tabela `PERMISSAO` são duas fontes da mesma verdade e precisam concordar. Gere o
+`INSERT` a partir do enum em vez de digitá-lo.

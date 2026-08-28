@@ -23,6 +23,7 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 | Transporte    | Cookie httpOnly para sessão + `Authorization: Bearer` para API_TOKEN |
 | Hash de senha | `@node-rs/argon2` (binários pré-compilados, sem node-gyp)            |
 | Dados padrão  | Catálogo de permissões derivado do modelo, como migration numerada   |
+| Sessão        | 7 dias de inatividade (`expira_em` desliza) + teto rígido de 30 dias |
 
 ## Por que autorização antes dos CRUDs
 
@@ -45,6 +46,9 @@ Não é preferência de estilo — é o formato deste código:
 ## Fase 0 — Fundação de autorização
 
 Nada aqui expõe endpoint; é o alicerce de todo o resto.
+
+**Estado:** 0.1 a 0.5, 0.7, 0.8 e 0.9 concluídos. Falta apenas o **0.6**, que não bloqueia o
+login — fica para a Fase 2, quando existir repositório que consuma a CTE.
 
 **0.1 — Redefinir o catálogo de capability.** Reescrever
 [src/config/features.ts](src/config/features.ts) no formato do v2: `PERMISSAO.codigo` é
