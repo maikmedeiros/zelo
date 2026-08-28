@@ -6,11 +6,11 @@ import { API_VERSION_PREFIX } from '@shared/utils/request-log/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const PASTA_PUBLICA = 'publicas';
+const PUBLIC_FOLDER = 'public';
 
-const ehPublica = (arquivo: string): boolean => arquivo.split(/[\\/]/)[0] === PASTA_PUBLICA;
+const isPublic = (file: string): boolean => file.split(/[\\/]/)[0] === PUBLIC_FOLDER;
 
-const carregar = async (app: Express, publicas: boolean): Promise<void> => {
+const load = async (app: Express, publicOnly: boolean): Promise<void> => {
   const isCompiled = __dirname.includes('dist');
   const routesDir = resolve(__dirname, '../main/routes');
 
@@ -23,7 +23,7 @@ const carregar = async (app: Express, publicas: boolean): Promise<void> => {
       (file) =>
         routeFileRegex.test(file) && !file.endsWith('.test.ts') && !file.endsWith('.spec.ts'),
     )
-    .filter((file) => ehPublica(file) === publicas);
+    .filter((file) => isPublic(file) === publicOnly);
 
   if (files.length === 0) return;
 
@@ -36,6 +36,6 @@ const carregar = async (app: Express, publicas: boolean): Promise<void> => {
   }
 };
 
-export const setupPublicRoutes = (app: Express): Promise<void> => carregar(app, true);
+export const setupPublicRoutes = (app: Express): Promise<void> => load(app, true);
 
-export const setupPrivateRoutes = (app: Express): Promise<void> => carregar(app, false);
+export const setupPrivateRoutes = (app: Express): Promise<void> => load(app, false);

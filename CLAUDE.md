@@ -38,33 +38,42 @@ Controller(uc)` dentro de `main/factories/`. O repositório **recebe** o provide
 
 - **`domain/` é FLAT.** Entities e interfaces de repositório são compartilhadas entre
   features, não dependem da URL. Uma entity por conceito; read models distintos por caso de
-  uso quando o formato difere (`Postagem` para a lista, `PostagemDetalhe` para o detalhe) —
-  e cuidado com **colisão de nomes** entre eles.
+  uso quando o formato difere (`Post` para a lista, `PostDetail` para o detalhe) — e cuidado
+  com **colisão de nomes** entre eles.
 - **`application/` e `presentation/` são agrupados por RECURSO, espelhando a URL.** Cada
   segmento de recurso vira uma pasta e a **feature fica na ponta**. **Params (`:id`) não
   viram pasta.**
-  - `GET /postagens` → `.../postagens/find-list-postagens/`
-  - `GET /postagens/:postagemId` → `.../postagens/find-postagem-by-id/`
-  - `POST /postagens/:postagemId/comentarios` → `.../postagens/comentarios/create-comentario/`
+  - `GET /posts` → `.../posts/find-list-posts/`
+  - `GET /posts/:postId` → `.../posts/find-post-by-id/`
+  - `POST /posts/:postId/comments` → `.../posts/comments/create-comment/`
+- **Rota pública mora em `main/routes/public/`**, montada antes do `injectActor` (§9).
 - **`infra/repositories/` é 1 arquivo por agregado**, opcionalmente agrupado em pasta por
   subdomínio. Vários métodos no mesmo repo é OK **se servem o mesmo agregado**.
 - **`main/routes/` e `main/factories/` NÃO têm o segmento do módulo** — só existe um módulo.
 
 ## 3. Nomenclatura de features (obrigatória)
 
-| Operação           | Padrão                      | Exemplo                                   |
-| ------------------ | --------------------------- | ----------------------------------------- |
-| Leitura de coleção | `find-list-<recurso>`       | `find-list-postagens`                     |
-| Leitura de item    | `find-<recurso>-by-<campo>` | `find-postagem-by-id`                     |
-| Escrita            | `<verbo>-<recurso>`         | `create-postagem`, `revoke-consentimento` |
+**O código é em INGLÊS — URL, pasta, feature, símbolo, entity, repositório.** O que continua
+em português é o **banco**: nome de tabela, de coluna e o alias `UPPER_SNAKE` dos
+`*PersistenceRow`, porque espelham o modelo (`zelo_v2.dbml`). A costura é o repositório: SQL
+em português entrando, tipos em inglês saindo.
 
-**Nunca `get-` nem `list-`.** Os símbolos seguem a feature: `find-list-postagens` →
-`FindListPostagensUseCase`, `FindListPostagensController`, `findListPostagensValidator`,
-`makeFindListPostagensController`.
+| Operação           | Padrão                     | Exemplo                         |
+| ------------------ | -------------------------- | ------------------------------- |
+| Leitura de coleção | `find-list-<resource>`     | `find-list-posts`               |
+| Leitura de item    | `find-<resource>-by-<key>` | `find-post-by-id`               |
+| Escrita            | `<verb>-<resource>`        | `create-post`, `revoke-consent` |
+
+**Nunca `get-` nem `list-`.** Os símbolos seguem a feature: `find-list-posts` →
+`FindListPostsUseCase`, `FindListPostsController`, `findListPostsValidator`,
+`makeFindListPostsController`.
+
+Exceção registrada: `GET /sessions/current` usa `find-current-session`, porque `current` é
+seletor e não campo — `find-session-by-current` não diz nada.
 
 **Contratos de `domain`/`infra` NÃO seguem a feature** (são compartilhados): o método do
-repositório é `list()` / `findById()`, os tipos são `ListPostagensFilters` /
-`ListPostagensResult`, e entity / mapper / `*PersistenceRow` mantêm o nome do conceito.
+repositório é `list()` / `findById()`, os tipos são `ListPostsFilters` / `ListPostsResult`, e
+entity / mapper / `*PersistenceRow` mantêm o nome do conceito.
 
 ---
 
@@ -161,10 +170,10 @@ dela.
 ## 9. Autorização
 
 - `injectActor` é **global** → toda rota nasce privada. Rota pública mora em
-  `main/routes/publicas/`, que o loader monta **antes** dessa linha. A pasta é a declaração:
+  `main/routes/public/`, que o loader monta **antes** dessa linha. A pasta é a declaração:
   não existe sinalizador nem lista. A granularidade é o **arquivo**, então login (público) e
   logout (privado) ficam em arquivos separados, apesar de serem o mesmo recurso.
-- Arquivo em `publicas/` **não pode usar `canRequest`** — sem ator no contexto ele lança 500,
+- Arquivo em `public/` **não pode usar `canRequest`** — sem ator no contexto ele lança 500,
   de propósito, acusando a inversão.
 - **Por rota:** `authz.canRequest(Feature.X)` como **primeiro middleware** → 403 sem a
   capability. Recebe a capability **crua** (`ACAO:RECURSO`), sem abrangência.

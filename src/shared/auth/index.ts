@@ -34,12 +34,13 @@ export interface Auth {
 
 export const createAuth = (repository: IActorRepository, config: AuthConfig): Auth => {
   const model = createActorModel(repository, config);
+  const sessionCookie = createSessionCookie(config);
 
   return {
-    injectActor: createInjectActor(model),
+    injectActor: createInjectActor(model, sessionCookie, config.cookieName),
     canRequest,
     can,
     scopesOf,
-    sessionCookie: createSessionCookie(config),
+    sessionCookie,
   };
 };

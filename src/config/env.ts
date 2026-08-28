@@ -25,6 +25,8 @@ const envSchema = z
     API_TOKEN_PREFIX: z.string().min(1),
     SESSION_COOKIE_NAME: z.enum(['ZELO_APP', 'ZELO_APP_STAGING', 'ZELO_APP_DEV']),
     SESSION_COOKIE_DOMAIN: z.preprocess(blankAsUndefined, z.string().min(1).optional()),
+    SESSION_IDLE_DAYS: z.coerce.number().int().positive().default(7),
+    SESSION_MAX_DAYS: z.coerce.number().int().positive().default(30),
 
     PG_HOST: z.string().min(1).default('localhost'),
     PG_PORT: z.coerce.number().int().positive().default(5432),
@@ -49,6 +51,14 @@ const envSchema = z
     ),
   })
   .superRefine((values, ctx) => {
+    if (values.SESSION_MAX_DAYS < values.SESSION_IDLE_DAYS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SESSION_MAX_DAYS'],
+        message: 'o teto absoluto não pode ser menor que a janela de inatividade',
+      });
+    }
+
     if (!values.MONGO_LOG_ACTIVE) return;
 
     for (const key of ['MONGO_URI', 'MONGO_DB_NAME'] as const) {
@@ -82,6 +92,8 @@ export const env = {
   session: {
     cookieName: data.SESSION_COOKIE_NAME,
     cookieDomain: data.SESSION_COOKIE_DOMAIN,
+    idleDays: data.SESSION_IDLE_DAYS,
+    maxDays: data.SESSION_MAX_DAYS,
   },
   pg: {
     host: data.PG_HOST,

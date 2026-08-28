@@ -20,42 +20,55 @@ Não gere nada antes de ter as cinco respostas. Se alguma não estiver no pedido
 5. **Capability**: `ACAO:RECURSO` (ex.: `CREATE:POST`). Se não existir no enum, ela é criada
    no passo 1. Rota pública não tem capability — ver o passo 12.
 
+**A URL é em inglês e no plural** (`/posts`, `/sessions`, `/students`). Params seguem o
+recurso em camelCase (`:postId`, `:studentId`).
+
 ## Passo 1 — derive os nomes
+
+**Tudo em INGLÊS: URL, pasta, feature, símbolo, entity, repositório.** Só o **banco** fica em
+português — tabela, coluna e o alias `UPPER_SNAKE` dos `*PersistenceRow`, porque espelham o
+`zelo_v2.dbml`. A costura é o repositório: SQL em português entrando, tipo em inglês saindo.
+
+```ts
+// certo: tipo em inglês, alias igual à coluna
+interface CredentialsPersistenceRow { ID: string; NOME: string; SENHA_HASH: string }
+SELECT u.senha_hash AS "SENHA_HASH" FROM usuario u
+```
 
 Da operação, derive o nome da feature (é obrigatório, não é gosto):
 
-| Operação           | Padrão                      | Exemplo               |
-| ------------------ | --------------------------- | --------------------- |
-| Leitura de coleção | `find-list-<recurso>`       | `find-list-postagens` |
-| Leitura de item    | `find-<recurso>-by-<campo>` | `find-postagem-by-id` |
-| Escrita            | `<verbo>-<recurso>`         | `create-postagem`     |
+| Operação           | Padrão                     | Exemplo           |
+| ------------------ | -------------------------- | ----------------- |
+| Leitura de coleção | `find-list-<resource>`     | `find-list-posts` |
+| Leitura de item    | `find-<resource>-by-<key>` | `find-post-by-id` |
+| Escrita            | `<verb>-<resource>`        | `create-post`     |
 
 **Nunca `get-` nem `list-`.** Todos os símbolos seguem a feature:
-`FindListPostagensUseCase`, `FindListPostagensController`, `findListPostagensValidator`,
-`makeFindListPostagensController`.
+`FindListPostsUseCase`, `FindListPostsController`, `findListPostsValidator`,
+`makeFindListPostsController`.
 
 Derive também o **caminho de pasta** a partir da URL: cada segmento de recurso vira uma
 pasta, a feature fica na ponta, **params não viram pasta**.
-`POST /postagens/:postagemId/comentarios` → `postagens/comentarios/create-comentario/`.
+`POST /posts/:postId/comments` → `posts/comments/create-comment/`.
 
 ## Passo 2 — gere os arquivos NESTA ordem
 
 Cada um depende do anterior. Pare e verifique se algo não encaixar.
 
-| #   | Arquivo                                                          | Regra que não pode ser esquecida                                                                                                      |
-| --- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `src/config/features.ts`                                         | Entrada na posição **alfabética**; numa migration NOVA, insira em `PERMISSAO` e conceda em `PERFIL_PERMISSAO` **com abrangência**     |
-| 2   | `src/modules/domain/entities/<conceito>.ts`                      | **Reuse** se já existir. `camelCase`, sem Zod, sem framework                                                                          |
-| 3   | `src/modules/domain/repositories/i-<agregado>-repository.ts`     | Nome do método **não** segue a feature: `list()`, `findById()`                                                                        |
-| 4   | `.../application/dtos/<caminho>/input.ts`                        | Corpo de escrita → `z.strictObject`. Query/params → `z.object`                                                                        |
-| 5   | `.../application/dtos/<caminho>/output.ts`                       | Coleção devolve `{ items, pagination }` — **nunca** `results`                                                                         |
-| 6   | `.../application/mappers/<recurso>/<x>-mapper.ts`                | `*PersistenceRow` em UPPER_SNAKE; métodos **estáticos**                                                                               |
-| 7   | `.../application/use-cases/<caminho>/<feature>.usecase.ts`       | Recebe **interfaces**. Sem envelope, sem HTTP, **sem try/catch**                                                                      |
-| 8   | `.../infra/repositories/<agregado>.repository.ts`                | Params **nomeados** (`@nome`); alias UPPER_SNAKE **entre aspas duplas**; ausência → `null` explícito                                  |
-| 9   | `.../presentation/validators/<recurso>/<feature>.validator.ts`   | `safeParse` + `throw new ValidationError`. **Query nunca é reatribuída**                                                              |
-| 10  | `.../presentation/controllers/<caminho>/<feature>.controller.ts` | Re-parseia a query; monta o envelope; resolve a abrangência com `authz.scopesOf` / `authz.can`                                        |
-| 11  | `src/main/factories/<caminho>/<feature>.factory.ts`              | Único lugar que conhece classe concreta e o singleton `db`. Reexporte no `index.ts`                                                   |
-| 12  | `src/main/routes/<recurso>.routes.ts`                            | `canRequest` → validator → `controller(...)`. **Estáticas antes de params**. Rota pública vai em `routes/publicas/`, SEM `canRequest` |
+| #   | Arquivo                                                          | Regra que não pode ser esquecida                                                                                                    |
+| --- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `src/config/features.ts`                                         | Entrada na posição **alfabética**; numa migration NOVA, insira em `PERMISSAO` e conceda em `PERFIL_PERMISSAO` **com abrangência**   |
+| 2   | `src/modules/domain/entities/<conceito>.ts`                      | **Reuse** se já existir. `camelCase`, sem Zod, sem framework                                                                        |
+| 3   | `src/modules/domain/repositories/i-<agregado>-repository.ts`     | Nome do método **não** segue a feature: `list()`, `findById()`                                                                      |
+| 4   | `.../application/dtos/<caminho>/input.ts`                        | Corpo de escrita → `z.strictObject`. Query/params → `z.object`                                                                      |
+| 5   | `.../application/dtos/<caminho>/output.ts`                       | Coleção devolve `{ items, pagination }` — **nunca** `results`                                                                       |
+| 6   | `.../application/mappers/<recurso>/<x>-mapper.ts`                | `*PersistenceRow` em UPPER_SNAKE; métodos **estáticos**                                                                             |
+| 7   | `.../application/use-cases/<caminho>/<feature>.usecase.ts`       | Recebe **interfaces**. Sem envelope, sem HTTP, **sem try/catch**                                                                    |
+| 8   | `.../infra/repositories/<agregado>.repository.ts`                | Params **nomeados** (`@nome`); alias UPPER_SNAKE **entre aspas duplas**; ausência → `null` explícito                                |
+| 9   | `.../presentation/validators/<recurso>/<feature>.validator.ts`   | `safeParse` + `throw new ValidationError`. **Query nunca é reatribuída**                                                            |
+| 10  | `.../presentation/controllers/<caminho>/<feature>.controller.ts` | Re-parseia a query; monta o envelope; resolve a abrangência com `authz.scopesOf` / `authz.can`                                      |
+| 11  | `src/main/factories/<caminho>/<feature>.factory.ts`              | Único lugar que conhece classe concreta e o singleton `db`. Reexporte no `index.ts`                                                 |
+| 12  | `src/main/routes/<recurso>.routes.ts`                            | `canRequest` → validator → `controller(...)`. **Estáticas antes de params**. Rota pública vai em `routes/public/`, SEM `canRequest` |
 
 **Recurso já existe?** Não crie arquivo de rota novo: adicione ao existente, adicione o
 método à interface + implementação do repositório e o `make*Controller` ao `index.ts`,
