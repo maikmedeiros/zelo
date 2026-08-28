@@ -1,3 +1,4 @@
+import { assertFeaturesInSync } from '@main/assert-features-in-sync.js';
 import { createApp } from '@main/app.js';
 import { db, pgConnection } from '@config/database.js';
 import { env } from '@config/env.js';
@@ -9,6 +10,9 @@ import { logger } from '@shared/utils/logger/index.js';
 if (env.pg.autoMigrate) {
   await runMigrations(pgConnection);
 }
+
+// Depois das migrations, porque é a migration que insere as linhas de PERMISSAO.
+await assertFeaturesInSync();
 
 if (env.mongo.logEnabled) {
   try {

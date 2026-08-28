@@ -6,10 +6,13 @@ import { IPostRepository } from '../../../domain/repositories/i-post-repository.
  * escreve para as turmas do próprio escopo. Sem isto, `CREATE:POST:TURMA` viraria
  * `CREATE:POST:ESCOLA` na prática — bastaria mandar o id de qualquer turma no corpo.
  *
- * O escopo usado é o mesmo da leitura (as três origens), e não só o de equipe: abrangência
- * `TURMA` significa "as minhas turmas", e ter duas definições dela seria uma armadilha.
- * Restringir a escrita a professor e acesso concedido é trocar `TURMA_NO_ESCOPO` por
- * `TURMA_DA_EQUIPE` nas duas consultas do repositório.
+ * O escopo de escrita é MAIS ESTREITO que o de leitura, e de propósito: só `PROFESSOR_TURMA`
+ * e `ACESSO_TURMA`. A ferramenta é a escola comunicando com as famílias — o responsável lê e
+ * comenta, não publica. O caminho dele para a turma (matrícula do filho) daria acesso de
+ * escrita sobre as outras crianças da sala, e isso não é o produto.
+ *
+ * No modo ALUNO a regra é a mesma vista pelo aluno: só se endereça a criança matriculada em
+ * turma onde o ator é equipe.
  */
 export const assertTargetsInScope = async (
   postRepo: IPostRepository,

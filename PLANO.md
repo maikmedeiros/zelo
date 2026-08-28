@@ -25,13 +25,13 @@ dele. `npm run build`, `lint:eslint:check` e `lint:security` passam limpos.
 | ----------------------------- | ----------------------------------------- |
 | 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2) |
 | 1 — Login e sessão            | ✅ concluída e verificada                 |
-| 1b — CRUD de tokens de API    | ⬜ **próxima**                            |
-| 2 — Postagens                 | 🔶 2.1, 2.2 e 2.3 ✅ — falta 2.4 e 2.5    |
+| 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                  |
 | 3 — Cadastros                 | ⬜                                        |
 | 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)               |
 | 4 — Conteúdo e interação      | ⬜                                        |
 | 5 — Consentimento e relatório | ⬜                                        |
 | 6 — RLS                       | ⬜                                        |
+| 7 — CRUD de tokens de API     | ⬜ (era 1b; adiada para o fim)            |
 
 Verificação da Fase 1 executada contra `localhost:3003`, com o administrador de bootstrap:
 `201` no login (com `Set-Cookie` httpOnly), `200` no `sessions/current` (69 capabilities,
@@ -153,57 +153,16 @@ Expiração deslizante: cada requisição autenticada atualiza `ultima_atividade
 `find-current-session` desvia do padrão `find-<recurso>-by-<campo>` porque `current` é
 seletor, não campo; a exceção está registrada no [CLAUDE.md](CLAUDE.md) §3.
 
-**Pendência da fase:** o DBML pede o registro do encerramento da sessão no Mongo, antes do
-`DELETE`. O `revoke-session` ainda não faz isso.
+**Não é pendência:** o `createRequestResponseLogger` já grava **toda** requisição no Mongo —
+método, caminho, status, ator e duração — e o `DELETE /sessions/current` não está entre os
+caminhos excluídos (`/status`, `/health`, `/metrics`). O registro do encerramento acontece
+pelo log genérico; o Mongo neste projeto é só log, e não precisa de escrita dedicada.
 
 **Documentação:** a coleção `Zelo` no Postman cobre as três rotas com os valores do
 administrador de bootstrap, mais o `/metrics`. Um detalhe que custou tempo e vale lembrar:
 como o Bearer tem precedência sobre o cookie, um header `Authorization` presente e vazio
 derruba a autenticação mesmo com cookie válido — e um header `Cookie` explícito sobrepõe o
 cookie jar do cliente.
-
-## Fase 1b — CRUD de tokens de API
-
-**Próxima fase.** Entrou no escopo depois: o `API_TOKEN` estava fora do MVP, mas o token
-semeado na `004` é credencial fixa versionada no git, válida por 90 dias, e isso não sobrevive
-a um ambiente exposto. Este CRUD é o que permite aposentá-lo.
-
-O mecanismo de autenticação **já existe e está verificado** (`findActorByApiToken`, prefixo,
-`Authorization: Bearer`). Falta só a gestão.
-
-| Rota                          | Capability         | Observação                                                             |
-| ----------------------------- | ------------------ | ---------------------------------------------------------------------- |
-| `POST /api-tokens`            | `CREATE:API_TOKEN` | Devolve o valor em claro **uma única vez**, no corpo do 201            |
-| `GET /api-tokens`             | `VIEW:API_TOKEN`   | Lista `prefixo`, nome, ambiente, validade e último uso — nunca o token |
-| `DELETE /api-tokens/:tokenId` | `REVOKE:API_TOKEN` | Revogação **lógica**: grava `revogado_em`/`revogado_por`               |
-
-**Antes das rotas**, três capabilities novas no enum `Feature` (`ApiTokenCreate`,
-`ApiTokenView`, `ApiTokenRevoke`) e a **migration `005`** inserindo-as em `PERMISSAO` e
-concedendo em `PERFIL_PERMISSAO` — a `004` já rodou e o migrator recusa arquivo editado
-depois de aplicado.
-
-Abrangência: `PROPRIA` para todo perfil que possa ter token (cada um administra os seus);
-`ESCOLA` só para quem precise auditar os alheios. Serão as **primeiras concessões não-`ESCOLA`
-do banco** — ou seja, o primeiro exercício real do `scopesOf` fora do caminho do administrador.
-
-Regras que o modelo impõe e o CRUD tem de respeitar:
-
-- **`expira_em` é obrigatório e o teto é 90 dias.** Não existe token eterno — é a nota do
-  DBML, e o `NOT NULL` do banco já cumpre metade.
-- **Só o SHA-256 é persistido.** O valor em claro existe uma vez, na resposta do `POST`.
-- **`prefixo` em claro** para a tela identificar qual token revogar sem revelar o segredo.
-- **Revogar é `UPDATE`, nunca `DELETE`** — apagar a linha destruiria o rastro de que aquele
-  token existiu e foi usado.
-- **O token herda as permissões do dono, nem mais nem menos.** Não há segunda árvore de
-  autorização; o `ActorRepository` já resolve pelo mesmo caminho da sessão.
-
-Duas pontas soltas do que já existe, confirmadas no código, que cabem aqui:
-
-- `ultimo_uso_em` e `ultimo_uso_ip` **não são atualizados** — `SELECT_ACTOR_BY_API_TOKEN` é
-  só leitura, ao contrário do caminho da sessão, que já renova. Sem isso, a listagem não tem
-  o que mostrar.
-- A coluna `ambiente` **não é verificada** em lugar nenhum. Um token `DESENVOLVIMENTO`
-  autentica em produção do mesmo jeito. A checagem entra no `findActorByApiToken`.
 
 ## Fase 2 — Primeira fatia vertical: postagens
 
@@ -377,10 +336,19 @@ Até aqui todo escopo era de leitura. Endereçar é escrita, e `CREATE:POST:TURM
 `ESCOLA` na prática se bastasse mandar o id de qualquer turma no corpo. `assertTargetsInScope`
 consulta quais alvos estão fora e lança `403` listando-os no `cause`.
 
-O escopo usado é **o mesmo da leitura** (as três origens), não só o de equipe: abrangência
-`TURMA` significa "as minhas turmas", e ter duas definições dela seria armadilha. Restringir a
-escrita a professor e acesso concedido é trocar `TURMA_NO_ESCOPO` por `TURMA_DA_EQUIPE` nas
-duas consultas.
+O escopo de escrita é **mais estreito que o de leitura**, por decisão de produto de
+28/08/2026: só `PROFESSOR_TURMA` e `ACESSO_TURMA`. A ferramenta é a escola comunicando com as
+famílias — o responsável lê e comenta, não publica. Deixar a escrita seguir o escopo de
+leitura daria a um responsável, se algum dia recebesse `CREATE:POST`, o direito de endereçar
+postagem às outras crianças da sala do filho.
+
+No modo `ALUNO` a mesma regra vista pelo aluno: só se endereça criança matriculada em turma
+onde o ator é equipe. Verificado: a `ana` cria para a Turma A, para o Théo e para a Helena
+(ambos matriculados nela) e é recusada na Turma B; a `diana`, que chega pela `ACESSO_TURMA`,
+cria normalmente.
+
+Comunicação no sentido inverso — família falando com a escola — fica fora do MVP; quando
+entrar, é recurso próprio, não postagem.
 
 ### Checagem de dono — o primeiro uso real do `authz.can`
 
@@ -407,7 +375,51 @@ Efeito colateral do rascunho: `publishedAt` passou a ser **anulável** na entity
 - **Audiência é imutável depois de publicada.** Mudar destinatário é tirar de quem já leu ou
   entregar a quem não recebeu, e o modelo não registra nem uma coisa nem outra. → `422`
 
-### Verificação
+### Fase 7 — CRUD de tokens de API
+
+**Última fase, por decisão de 28/08/2026.** Nasceu como 1b e foi adiada duas vezes: não é
+crucial enquanto não houver ambiente exposto. O token semeado na `004` é credencial fixa
+versionada no git, válida por 90 dias — este CRUD é o que permite aposentá-lo, e a hora de
+fazê-lo é antes do primeiro deploy fora da máquina de desenvolvimento.
+
+O mecanismo de autenticação **já existe e está verificado** (`findActorByApiToken`, prefixo,
+`Authorization: Bearer`). Falta só a gestão.
+
+| Rota                          | Capability         | Observação                                                             |
+| ----------------------------- | ------------------ | ---------------------------------------------------------------------- |
+| `POST /api-tokens`            | `CREATE:API_TOKEN` | Devolve o valor em claro **uma única vez**, no corpo do 201            |
+| `GET /api-tokens`             | `VIEW:API_TOKEN`   | Lista `prefixo`, nome, ambiente, validade e último uso — nunca o token |
+| `DELETE /api-tokens/:tokenId` | `REVOKE:API_TOKEN` | Revogação **lógica**: grava `revogado_em`/`revogado_por`               |
+
+**Antes das rotas**, três capabilities novas no enum `Feature` (`ApiTokenCreate`,
+`ApiTokenView`, `ApiTokenRevoke`) e a **migration `005`** inserindo-as em `PERMISSAO` e
+concedendo em `PERFIL_PERMISSAO` — a `004` já rodou e o migrator recusa arquivo editado
+depois de aplicado.
+
+Abrangência: `PROPRIA` para todo perfil que possa ter token (cada um administra os seus);
+`ESCOLA` só para quem precise auditar os alheios. Serão as **primeiras concessões não-`ESCOLA`
+do banco** — ou seja, o primeiro exercício real do `scopesOf` fora do caminho do administrador.
+
+Regras que o modelo impõe e o CRUD tem de respeitar:
+
+- **`expira_em` é obrigatório e o teto é 90 dias.** Não existe token eterno — é a nota do
+  DBML, e o `NOT NULL` do banco já cumpre metade.
+- **Só o SHA-256 é persistido.** O valor em claro existe uma vez, na resposta do `POST`.
+- **`prefixo` em claro** para a tela identificar qual token revogar sem revelar o segredo.
+- **Revogar é `UPDATE`, nunca `DELETE`** — apagar a linha destruiria o rastro de que aquele
+  token existiu e foi usado.
+- **O token herda as permissões do dono, nem mais nem menos.** Não há segunda árvore de
+  autorização; o `ActorRepository` já resolve pelo mesmo caminho da sessão.
+
+Duas pontas soltas do que já existe, confirmadas no código, que cabem aqui:
+
+- `ultimo_uso_em` e `ultimo_uso_ip` **não são atualizados** — `SELECT_ACTOR_BY_API_TOKEN` é
+  só leitura, ao contrário do caminho da sessão, que já renova. Sem isso, a listagem não tem
+  o que mostrar.
+- A coluna `ambiente` **não é verificada** em lugar nenhum. Um token `DESENVOLVIMENTO`
+  autentica em produção do mesmo jeito. A checagem entra no `findActorByApiToken`.
+
+## Verificação
 
 Ciclo completo exercitado: criar (`201`, nasce sem `publishedAt`) → editar (`200`) →
 publicar (`200`, com data) → aparecer no feed do responsável → remover (`204`) → sumir do
@@ -510,9 +522,11 @@ administrador, o erro está nessa linha, não no SQL.
 ## Riscos registrados
 
 - **Duas fontes de verdade para o catálogo**: o enum `Feature` e a tabela `PERMISSAO`
-  precisam concordar. Conferido na mão em 28/08/2026 — **69 códigos de cada lado, idênticos**.
-  A verificação automática no boot ainda não existe; vale fazer, é barata e evita um 403
-  inexplicável em produção.
+  precisam concordar. **Mitigado** — `assertFeaturesInSync` roda no boot, depois das
+  migrations, e lança se houver divergência nos dois sentidos. Código no enum e não na tabela
+  é o caso perigoso: `canRequest` compara contra o que veio do banco, então ninguém jamais
+  teria aquela capability e toda requisição à rota seria negada sem nada acusar o motivo.
+  Verificado injetando uma linha fantasma em `PERMISSAO` — o boot recusa e nomeia o código.
 - **Duas fontes de verdade para o escopo de turma**: a view `turma_no_escopo` (RLS) e a CTE
   da aplicação (passo 2.4). Ver a ressalva na Fase 2.
 - **Migrations são imutáveis a partir de agora**: o migrator guarda checksum e recusa

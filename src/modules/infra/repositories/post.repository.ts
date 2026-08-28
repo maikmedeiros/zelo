@@ -1,4 +1,5 @@
 import {
+  PaginatedRow,
   PostgresDatabase,
   emptyPagination,
   paginationFromRow,
@@ -14,7 +15,7 @@ import {
 import { PostMapper, PostPersistenceRow } from '../../application/mappers/posts/post-mapper.js';
 import {
   ACTIVE_PERIOD,
-  TURMA_NO_ESCOPO,
+  TURMA_DA_EQUIPE,
   alunoVisivelParaAtor,
   visivelParaAtor,
 } from './sql/turma-escopo.js';
@@ -85,6 +86,29 @@ const COLUNAS_DO_ITEM = (alias: string): string => `
 
 // A contagem sai da CTE já filtrada: count(*) OVER () roda depois do WHERE e antes do
 // LIMIT, então TOTAL_REGISTRO é o total real da consulta, não o tamanho da página.
+const FROM_VISIVEL = `
+  FROM postagem p
+    WHERE p.status = @status::status_postagem
+      -- Rascunho não tem audiência: não chegou a ninguém. Só o autor o enxerga, inclusive
+      -- para quem tem abrangência ESCOLA — por isso @actorId, e não @viewerId.
+      AND (@status::status_postagem <> 'RASCUNHO' OR p.autor_id = @actorId::uuid)
+      AND (@type::tipo_postagem IS NULL OR p.tipo = @type::tipo_postagem)
+      AND (${FILTRO_TURMA})
+      AND (
+        @studentId::uuid IS NULL
+        OR EXISTS (
+          SELECT 1 FROM postagem_aluno pa
+          WHERE pa.postagem_id = p.id AND pa.aluno_id = @studentId::uuid
+        )
+      )
+      AND (@authorId::uuid IS NULL OR p.autor_id = @authorId::uuid)
+      AND (
+        @status::status_postagem = 'RASCUNHO'
+        OR @viewerId::uuid IS NULL
+        OR (${visivelParaAtor('p')})
+      )
+`;
+
 const SELECT_LIST = `
   WITH visivel AS (
     SELECT
@@ -135,6 +159,19 @@ const SELECT_LIST = `
   ORDER BY pg.publicado_em DESC, pg.id;
 `;
 
+// Página fora do intervalo devolve zero linhas, e sem linha não há de onde ler as colunas de
+// paginação. Esta contagem separa "coleção vazia" de "passei do fim" — o cliente não deveria
+// ter de adivinhar qual dos dois. Roda só quando a página vem vazia, então não pesa no
+// caminho quente. E `TOTAL_PAGINA` continua saindo do banco, não da aplicação.
+const SELECT_LIST_COUNT = `
+  SELECT
+    @page::int                                        AS "PAGINA_ATUAL",
+    @limit::int                                       AS "LIMITE_PAGINA",
+    count(*)::int                                     AS "TOTAL_REGISTRO",
+    ceil(count(*)::numeric / @limit::numeric)::int    AS "TOTAL_PAGINA"
+  ${FROM_VISIVEL};
+`;
+
 // Fora da audiência, o recordset vem vazio e o use-case traduz em 404. Recusar por
 // permissão aqui confirmaria que a postagem existe.
 const SELECT_BY_ID = `
@@ -179,10 +216,13 @@ const SELECT_OWNERSHIP = `
   WHERE p.id = @postId::uuid AND p.status <> 'REMOVIDA';
 `;
 
+// Escrita usa `TURMA_DA_EQUIPE`, não o escopo de leitura. Quem publica é a escola: professor
+// e quem tem acesso concedido. O responsável lê e comenta — o caminho dele para a turma, pela
+// matrícula do filho, não abre direito de endereçar postagem a ninguém.
 const SELECT_TURMAS_FORA_DE_ESCOPO = `
   SELECT alvo.id::text AS "ID"
   FROM unnest(@classIds::uuid[]) AS alvo(id)
-  WHERE alvo.id NOT IN (${TURMA_NO_ESCOPO});
+  WHERE alvo.id NOT IN (${TURMA_DA_EQUIPE});
 `;
 
 const SELECT_ALUNOS_FORA_DE_ESCOPO = `
@@ -191,7 +231,7 @@ const SELECT_ALUNOS_FORA_DE_ESCOPO = `
   WHERE NOT EXISTS (
     SELECT 1 FROM matricula m
     WHERE m.aluno_id = alvo.id AND ${ACTIVE_PERIOD('m')}
-      AND m.turma_id IN (${TURMA_NO_ESCOPO})
+      AND m.turma_id IN (${TURMA_DA_EQUIPE})
   );
 `;
 
@@ -265,7 +305,7 @@ export class PostRepository implements IPostRepository {
   constructor(private readonly db: PostgresDatabase) {}
 
   async list(filters: ListPostsFilters): Promise<ListPostsResult> {
-    const rows = await this.db.query<PostPersistenceRow>(SELECT_LIST, {
+    const variables = {
       page: filters.page,
       limit: filters.limit,
       offset: (filters.page - 1) * filters.limit,
@@ -276,14 +316,21 @@ export class PostRepository implements IPostRepository {
       status: filters.status,
       actorId: filters.actorId,
       viewerId: filters.viewerId,
-    });
+    };
+
+    const rows = await this.db.query<PostPersistenceRow>(SELECT_LIST, variables);
 
     const first = rows[0];
+    if (first) {
+      return { items: rows.map(PostMapper.fromPersistence), pagination: paginationFromRow(first) };
+    }
+
+    const totais = await this.db.query<PaginatedRow>(SELECT_LIST_COUNT, variables);
+    const total = totais[0];
 
     return {
-      items: rows.map(PostMapper.fromPersistence),
-      // Recordset vazio não traz as colunas de paginação: não há linha de onde lê-las.
-      pagination: first ? paginationFromRow(first) : emptyPagination(filters.page, filters.limit),
+      items: [],
+      pagination: total ? paginationFromRow(total) : emptyPagination(filters.page, filters.limit),
     };
   }
 
