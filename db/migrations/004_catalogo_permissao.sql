@@ -107,3 +107,17 @@ SELECT '00000000-0000-0000-0000-000000000003', f.id
 FROM perfil f
 WHERE f.codigo = 'ADMINISTRADOR' AND f.escola_id = '00000000-0000-0000-0000-000000000001'
 ON CONFLICT DO NOTHING;
+
+-- Token de API do administrador, para Postman e scripts. O valor em claro NÃO fica aqui —
+-- só o SHA-256. Ele está registrado no README, junto da senha do admin.
+-- Mesma dívida do usuário 'admin': credencial conhecida e versionada. Só desenvolvimento.
+INSERT INTO api_token (usuario_id, nome, prefixo, token_hash, ambiente, expira_em)
+VALUES (
+  '00000000-0000-0000-0000-000000000003',
+  'Postman (bootstrap)',
+  'zelo_2_wgC4G',
+  'cdb3bf6a0550c71fa8b74629cf84a902925942581e02ca80c5ad70399aee7678',
+  'DESENVOLVIMENTO',
+  now() + interval '90 days'
+)
+ON CONFLICT (token_hash) DO NOTHING;
