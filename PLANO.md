@@ -288,17 +288,78 @@ Decisões tomadas aqui, que valem para as próximas rotas:
 O rascunho da Turma A não aparece para ninguém, e o `fabio` (sem perfil) recebe 403 — o que
 separa "faltou capability" de "o recorte funcionou".
 
-**2.4 — `GET /posts/:postId` e extração das CTEs** para
-`src/modules/infra/repositories/sql/turma-escopo.ts` — as três origens do vínculo, para os
-repositórios importarem em vez de reescrever. Este é o antigo item 0.6, movido para cá: a
-extração acontece no **segundo** consumidor, com o primeiro já provado.
+**2.4 — `GET /posts/:postId` e extração das CTEs** ✅
 
-Sobre a CTE, uma armadilha registrada: ela **não pode ser copiada** da view
-`turma_no_escopo` de [002_rls.sql](db/migrations/002_rls.sql). A view filtra por
-`app_usuario_id()`, que lê o GUC de sessão — alimentado só na Fase 6. A versão da aplicação
-precisa ser parametrizada. São duas grafias da mesma regra, e elas têm de concordar:
-divergência silenciosa entre as duas é precisamente o que a Fase 6 vai medir. Vale um
-comentário em cada uma apontando para a outra.
+O detalhe devolve **o mesmo item da lista**, sem agregados. Comentários, reações e mídias
+entram na Fase 4, quando tiverem rotas próprias — cada um é um join e uma decisão de escopo
+por conta, e a 2.4 existe para validar o recorte no caminho do item, não para montar tela.
+
+**404, nunca 403.** Postagem fora da audiência e postagem inexistente são indistinguíveis
+para quem pede: negar por permissão confirmaria que ela existe. O repositório devolve `null`
+e o use-case traduz — é a regra do [CLAUDE.md](CLAUDE.md) §7 aplicada ao caso em que o
+recordset vazio _é_ a resposta de autorização.
+
+As três CTEs saíram para
+[infra/repositories/sql/turma-escopo.ts](src/modules/infra/repositories/sql/turma-escopo.ts),
+agora com o segundo consumidor real — `visivelParaAtor(alias)` serve à lista e ao detalhe.
+O arquivo também guarda a nota de que ele e as views da RLS são duas grafias da mesma regra.
+
+**A pendência do array `students` foi resolvida aqui**, e não é cosmética: ver a postagem
+não é ver todos os destinatários dela. `alunoVisivelParaAtor` recorta o array pelo ator —
+cada um só enxerga os alunos sobre os quais tem vínculo (filho seu, ou criança de turma onde
+é equipe); `ESCOLA` vê todos. `classes[]` continua completo: nome de turma não é dado
+pessoal, e saber que um recado foi para duas turmas é contexto útil.
+
+O efeito é visível em "Fotos do passeio", endereçada ao Théo (Turma A) e à Lívia (Turma B):
+
+| Ator      | Vê a postagem | `students[]` |
+| --------- | ------------- | ------------ |
+| `admin`   | sim           | Lívia, Théo  |
+| `ana`     | sim           | Théo         |
+| `bruno`   | sim           | Théo         |
+| `carla`   | sim           | Lívia        |
+| `gabriel` | **404**       | —            |
+
+Verificação dos cinco caminhos no detalhe: **401** sem cookie, **403** com o `fabio`,
+**400** com `postId` fora do formato GUID, **404** para uuid inexistente, para rascunho
+(inclusive para o `admin`) e para postagem fora da audiência, **200** com o formato exato.
+
+**2.4b — Autoria como caminho de visibilidade e o filtro `authorId`** ✅
+
+Duas lacunas encontradas ao revisar a 2.4, ambas fechadas:
+
+**Autoria não era caminho de acesso.** A regra tinha três ramos — turma no escopo, aluno sob
+responsabilidade, turma do aluno pela equipe — e nenhum olhava `autor_id`. O vínculo que dá
+acesso na hora de escrever **expira**: a criança muda de turma, o professor troca de sala, e
+quem escreveu perde o próprio texto. `visivelParaAtor` ganhou um quarto ramo.
+
+Verificado em isolamento, encerrando o `professor_turma` da `ana`: ela mantém as duas
+postagens que escreveu e perde "Recesso de setembro", de outro autor. Restaurado depois.
+
+O mesmo vale para o conteúdo: o autor enxerga a lista **completa** de destinatários da
+postagem dele — ele escolheu quem eram. Sem essa exceção, quem escrevesse para crianças de
+turmas diferentes veria a própria postagem truncada.
+
+**Filtro `authorId` na listagem**, para a aba "Minhas postagens" do front. É filtro de GUID,
+não um `mine=true`: compõe com os demais e o front manda o próprio id, que ele já tem do
+`GET /sessions/current`. O recorte de audiência continua valendo por cima — filtrar pelas
+postagens de outra pessoa devolve só as que você já podia ver.
+
+**Ponta solta para a 2.5:** a aba "Minhas postagens" de um professor deveria mostrar os
+**rascunhos** dele, e a listagem só serve `PUBLICADA`. Rascunho do autor entra junto com as
+escritas.
+
+## Fase 2 — decisão registrada: abrangência ESCOLA em conteúdo
+
+O `admin` enxerga postagem endereçada a aluno com quem não tem vínculo nenhum, porque o
+perfil `ADMINISTRADOR` tem `VIEW:POST` com abrangência `ESCOLA` e `ESCOLA` ignora vínculo por
+definição. Isso **contraria a regra da 0.7** — conteúdo de turma é `TURMA` para todo perfil —
+e é a dívida de bootstrap que a `004` assume em caixa alta.
+
+Avaliado e **mantido como está** por ora; a correção pertence à Fase 3b, rebaixando as
+capabilities de conteúdo do `ADMINISTRADOR` para `TURMA` e dando a ele `ACESSO_TURMA` onde
+precisar enxergar. Vale lembrar que os perfis `PROFESSOR`, `RESPONSAVEL` e `COORDENACAO` do
+seed já seguem a regra: nenhum deles tem conteúdo em `ESCOLA`.
 
 **2.5 — `POST`, `PATCH`, `DELETE`**, com a checagem de dono via
 `authz.can(actor, Feature.X, { ownerId, groupId })` recebida pelo use-case como callback.
@@ -377,13 +438,11 @@ bem hoje" nem "Fotos do passeio". A `carla`, de outra turma, enxerga "Fotos do p
 porque a Lívia é destinatária — a postagem que atravessa turmas, que a cardinalidade antiga
 não conseguia representar.
 
-### Pendência aberta
+### Pendência que a 2.4 fechou
 
-O array `students` vai **completo** para todo mundo que enxerga a postagem. Na prática a
-`carla` lê que o Théo também é destinatário de "Fotos do passeio". Para uma foto de grupo
-isso talvez seja o desejado; para um recado individual endereçado a duas famílias, é
-divulgação de participação. Decidir se o array deve ser filtrado por quem olha — e, se sim,
-o mesmo vale para o `GET /posts/:postId` da 2.4.
+O array `students` ia **completo** para todo mundo que enxergava a postagem — a `carla` lia
+que o Théo também era destinatário de "Fotos do passeio". O recorte da linha funcionava, mas
+o do conteúdo não existia. Resolvido na 2.4: o array é filtrado pelo ator, nas duas rotas.
 
 ## Fase 3 — Cadastros, em ordem de dependência
 

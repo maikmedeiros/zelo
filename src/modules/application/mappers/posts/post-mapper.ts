@@ -7,7 +7,6 @@ import {
   PostStudent,
   PostType,
 } from '../../../domain/entities/post.js';
-import { FindListPostsOutput } from '../../dtos/posts/find-list-posts/output.js';
 
 interface ClassRow {
   ID: string;
@@ -19,6 +18,20 @@ interface StudentRow {
   NOME: string;
   TURMA_ID: string | null;
   NOME_TURMA: string | null;
+}
+
+export interface PostOutput {
+  id: string;
+  audience: PostAudience;
+  classes: PostClass[];
+  students: PostStudent[];
+  authorId: string;
+  authorName: string;
+  type: PostType;
+  title: string | null;
+  body: string | null;
+  referenceDate: string;
+  publishedAt: string;
 }
 
 export interface PostPersistenceRow extends PaginatedRow {
@@ -61,7 +74,7 @@ export class PostMapper {
     };
   }
 
-  static toOutput(post: Post): FindListPostsOutput {
+  static toOutput(post: Post): PostOutput {
     return { ...post, publishedAt: post.publishedAt.toISOString() };
   }
 }

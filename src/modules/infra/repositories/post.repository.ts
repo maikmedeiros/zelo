@@ -3,88 +3,14 @@ import {
   emptyPagination,
   paginationFromRow,
 } from '@shared/infra/database/index.js';
+import { Post } from '../../domain/entities/post.js';
 import {
   IPostRepository,
   ListPostsFilters,
   ListPostsResult,
 } from '../../domain/repositories/i-post-repository.js';
 import { PostMapper, PostPersistenceRow } from '../../application/mappers/posts/post-mapper.js';
-
-const ACTIVE_PERIOD = (alias: string): string =>
-  `(${alias}.data_fim IS NULL OR ${alias}.data_fim >= CURRENT_DATE)`;
-
-// As três origens de vínculo do modelo v2, unidas. Espelha a view `turma_no_escopo` da
-// 002_rls.sql, parametrizada por @viewerId — a view filtra por app_usuario_id(), o GUC que
-// só passa a ser alimentado na Fase 6.
-// TODO(2.4): as três CTEs abaixo saem para infra/repositories/sql/turma-escopo.ts quando
-// aparecer o segundo consumidor (o GET /posts/:postId).
-const TURMA_NO_ESCOPO = `
-  SELECT m.turma_id
-  FROM usuario u
-  INNER JOIN responsavel r        ON r.pessoa_id = u.pessoa_id
-  INNER JOIN responsavel_aluno ra ON ra.responsavel_id = r.id AND ${ACTIVE_PERIOD('ra')}
-  INNER JOIN matricula m          ON m.aluno_id = ra.aluno_id AND ${ACTIVE_PERIOD('m')}
-  WHERE u.id = @viewerId::uuid
-
-  UNION
-
-  SELECT pt.turma_id
-  FROM usuario u
-  INNER JOIN professor pr       ON pr.pessoa_id = u.pessoa_id AND pr.ativo = true
-  INNER JOIN professor_turma pt ON pt.professor_id = pr.id AND ${ACTIVE_PERIOD('pt')}
-  WHERE u.id = @viewerId::uuid
-
-  UNION
-
-  SELECT ac.turma_id
-  FROM acesso_turma ac
-  WHERE ac.usuario_id = @viewerId::uuid AND ${ACTIVE_PERIOD('ac')}
-`;
-
-// Só as origens de EQUIPE. Espelha a view `turma_da_equipe` da 005.
-const TURMA_DA_EQUIPE = `
-  SELECT pt.turma_id
-  FROM usuario u
-  INNER JOIN professor pr       ON pr.pessoa_id = u.pessoa_id AND pr.ativo = true
-  INNER JOIN professor_turma pt ON pt.professor_id = pr.id AND ${ACTIVE_PERIOD('pt')}
-  WHERE u.id = @viewerId::uuid
-
-  UNION
-
-  SELECT ac.turma_id
-  FROM acesso_turma ac
-  WHERE ac.usuario_id = @viewerId::uuid AND ${ACTIVE_PERIOD('ac')}
-`;
-
-// Os alunos sob responsabilidade do ator. Espelha a view `aluno_no_escopo` da 005.
-const ALUNO_NO_ESCOPO = `
-  SELECT ra.aluno_id
-  FROM usuario u
-  INNER JOIN responsavel r        ON r.pessoa_id = u.pessoa_id
-  INNER JOIN responsavel_aluno ra ON ra.responsavel_id = r.id AND ${ACTIVE_PERIOD('ra')}
-  WHERE u.id = @viewerId::uuid
-`;
-
-// A audiência tem dois modos, e o recorte segue os dois caminhos.
-//
-// No modo ALUNO o responsável entra **pelo aluno** e a equipe **pela turma do aluno**, em
-// ramos separados de propósito: um único ramo por turma faria o responsável de qualquer
-// criança daquela turma enxergar a postagem individual sobre a criança dos outros.
-const VISIVEL_PARA_ATOR = `
-  EXISTS (
-    SELECT 1 FROM postagem_turma pt
-    WHERE pt.postagem_id = p.id AND pt.turma_id IN (${TURMA_NO_ESCOPO})
-  )
-  OR EXISTS (
-    SELECT 1 FROM postagem_aluno pa
-    WHERE pa.postagem_id = p.id AND pa.aluno_id IN (${ALUNO_NO_ESCOPO})
-  )
-  OR EXISTS (
-    SELECT 1 FROM postagem_aluno pa
-    INNER JOIN matricula m ON m.aluno_id = pa.aluno_id AND ${ACTIVE_PERIOD('m')}
-    WHERE pa.postagem_id = p.id AND m.turma_id IN (${TURMA_DA_EQUIPE})
-  )
-`;
+import { ACTIVE_PERIOD, alunoVisivelParaAtor, visivelParaAtor } from './sql/turma-escopo.js';
 
 // `classId` alcança os dois modos: a postagem endereçada à turma, e a endereçada a um aluno
 // matriculado nela. Filtrar o feed por turma e perder o registro individual da criança
@@ -100,6 +26,54 @@ const FILTRO_TURMA = `
     INNER JOIN matricula m ON m.aluno_id = pa.aluno_id AND ${ACTIVE_PERIOD('m')}
     WHERE pa.postagem_id = p.id AND m.turma_id = @classId::uuid
   )
+`;
+
+const TURMAS_DA_POSTAGEM = (alias: string): string => `
+  SELECT jsonb_agg(jsonb_build_object('ID', t.id::text, 'NOME', t.nome) ORDER BY t.nome)
+  FROM postagem_turma pt
+  INNER JOIN turma t ON t.id = pt.turma_id
+  WHERE pt.postagem_id = ${alias}
+`;
+
+// O array de alunos é recortado pelo ator: ver a postagem não é ver todos os destinatários
+// dela. Ver `alunoVisivelParaAtor` em sql/turma-escopo.ts. O autor é exceção — ele escolheu
+// os destinatários, então enxerga a lista que ele mesmo montou.
+const ALUNOS_DA_POSTAGEM = (alias: string, autor: string): string => `
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'ID', a.id::text,
+             'NOME', pes.nome,
+             'TURMA_ID', mt.turma_id::text,
+             'NOME_TURMA', mt.nome
+           ) ORDER BY pes.nome
+         )
+  FROM postagem_aluno pa
+  INNER JOIN aluno a    ON a.id = pa.aluno_id
+  INNER JOIN pessoa pes ON pes.id = a.pessoa_id
+  LEFT JOIN LATERAL (
+    SELECT m.turma_id, t.nome
+    FROM matricula m
+    INNER JOIN turma t ON t.id = m.turma_id
+    WHERE m.aluno_id = a.id AND ${ACTIVE_PERIOD('m')}
+    ORDER BY m.data_inicio DESC
+    LIMIT 1
+  ) mt ON true
+  WHERE pa.postagem_id = ${alias}
+    AND (${autor} = @viewerId::uuid OR (${alunoVisivelParaAtor('pa.aluno_id')}))
+`;
+
+const COLUNAS_DO_ITEM = (alias: string): string => `
+  ${alias}.id::text                       AS "ID",
+  ${alias}.destinatario::text             AS "DESTINATARIO",
+  (${TURMAS_DA_POSTAGEM(`${alias}.id`)})  AS "TURMAS",
+  (${ALUNOS_DA_POSTAGEM(`${alias}.id`, `${alias}.autor_id`)}) AS "ALUNOS",
+  ${alias}.autor_id::text                 AS "AUTOR_ID",
+  autor.nome                              AS "NOME_AUTOR",
+  ${alias}.tipo::text                     AS "TIPO",
+  ${alias}.titulo                         AS "TITULO",
+  ${alias}.corpo                          AS "CORPO",
+  to_char(${alias}.referente_a, 'YYYY-MM-DD') AS "REFERENTE_A",
+  ${alias}.publicado_em                   AS "PUBLICADO_EM"
 `;
 
 // A contagem sai da CTE já filtrada: count(*) OVER () roda depois do WHERE e antes do
@@ -126,7 +100,8 @@ const SELECT_LIST = `
           WHERE pa.postagem_id = p.id AND pa.aluno_id = @studentId::uuid
         )
       )
-      AND (@viewerId::uuid IS NULL OR (${VISIVEL_PARA_ATOR}))
+      AND (@authorId::uuid IS NULL OR p.autor_id = @authorId::uuid)
+      AND (@viewerId::uuid IS NULL OR (${visivelParaAtor('p')}))
   ),
   pagina AS (
     SELECT v.*, count(*) OVER () AS total_registro
@@ -135,51 +110,27 @@ const SELECT_LIST = `
     LIMIT @limit::int OFFSET @offset::int
   )
   SELECT
-    pg.id::text                                             AS "ID",
-    pg.destinatario::text                                   AS "DESTINATARIO",
-    (
-      SELECT jsonb_agg(jsonb_build_object('ID', t.id::text, 'NOME', t.nome) ORDER BY t.nome)
-      FROM postagem_turma pt
-      INNER JOIN turma t ON t.id = pt.turma_id
-      WHERE pt.postagem_id = pg.id
-    )                                                       AS "TURMAS",
-    (
-      SELECT jsonb_agg(
-               jsonb_build_object(
-                 'ID', a.id::text,
-                 'NOME', pes.nome,
-                 'TURMA_ID', mt.turma_id::text,
-                 'NOME_TURMA', mt.nome
-               ) ORDER BY pes.nome
-             )
-      FROM postagem_aluno pa
-      INNER JOIN aluno a   ON a.id = pa.aluno_id
-      INNER JOIN pessoa pes ON pes.id = a.pessoa_id
-      LEFT JOIN LATERAL (
-        SELECT m.turma_id, t.nome
-        FROM matricula m
-        INNER JOIN turma t ON t.id = m.turma_id
-        WHERE m.aluno_id = a.id AND ${ACTIVE_PERIOD('m')}
-        ORDER BY m.data_inicio DESC
-        LIMIT 1
-      ) mt ON true
-      WHERE pa.postagem_id = pg.id
-    )                                                       AS "ALUNOS",
-    pg.autor_id::text                                       AS "AUTOR_ID",
-    autor.nome                                              AS "NOME_AUTOR",
-    pg.tipo::text                                           AS "TIPO",
-    pg.titulo                                               AS "TITULO",
-    pg.corpo                                                AS "CORPO",
-    to_char(pg.referente_a, 'YYYY-MM-DD')                   AS "REFERENTE_A",
-    pg.publicado_em                                         AS "PUBLICADO_EM",
-    @page::int                                              AS "PAGINA_ATUAL",
-    @limit::int                                             AS "LIMITE_PAGINA",
-    pg.total_registro::int                                  AS "TOTAL_REGISTRO",
-    ceil(pg.total_registro::numeric / @limit::numeric)::int  AS "TOTAL_PAGINA"
+    ${COLUNAS_DO_ITEM('pg')},
+    @page::int                                             AS "PAGINA_ATUAL",
+    @limit::int                                            AS "LIMITE_PAGINA",
+    pg.total_registro::int                                 AS "TOTAL_REGISTRO",
+    ceil(pg.total_registro::numeric / @limit::numeric)::int AS "TOTAL_PAGINA"
   FROM pagina pg
   INNER JOIN usuario u    ON u.id = pg.autor_id
   INNER JOIN pessoa autor ON autor.id = u.pessoa_id
   ORDER BY pg.publicado_em DESC, pg.id;
+`;
+
+// Fora da audiência, o recordset vem vazio e o use-case traduz em 404. Recusar por
+// permissão aqui confirmaria que a postagem existe.
+const SELECT_BY_ID = `
+  SELECT ${COLUNAS_DO_ITEM('p')}
+  FROM postagem p
+  INNER JOIN usuario u    ON u.id = p.autor_id
+  INNER JOIN pessoa autor ON autor.id = u.pessoa_id
+  WHERE p.id = @postId::uuid
+    AND p.status = 'PUBLICADA'
+    AND (@viewerId::uuid IS NULL OR (${visivelParaAtor('p')}));
 `;
 
 export class PostRepository implements IPostRepository {
@@ -192,6 +143,7 @@ export class PostRepository implements IPostRepository {
       offset: (filters.page - 1) * filters.limit,
       classId: filters.classId,
       studentId: filters.studentId,
+      authorId: filters.authorId,
       type: filters.type,
       viewerId: filters.viewerId,
     });
@@ -203,5 +155,12 @@ export class PostRepository implements IPostRepository {
       // Recordset vazio não traz as colunas de paginação: não há linha de onde lê-las.
       pagination: first ? paginationFromRow(first) : emptyPagination(filters.page, filters.limit),
     };
+  }
+
+  async findById(postId: string, viewerId: string | null): Promise<Post | null> {
+    const rows = await this.db.query<PostPersistenceRow>(SELECT_BY_ID, { postId, viewerId });
+    const first = rows[0];
+
+    return first ? PostMapper.fromPersistence(first) : null;
   }
 }
