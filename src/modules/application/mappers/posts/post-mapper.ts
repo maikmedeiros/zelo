@@ -1,12 +1,31 @@
 import { PaginatedRow } from '@shared/infra/database/index.js';
 import { formatPersonName } from '@shared/utils/name/index.js';
-import { Post, PostType } from '../../../domain/entities/post.js';
+import {
+  Post,
+  PostAudience,
+  PostClass,
+  PostStudent,
+  PostType,
+} from '../../../domain/entities/post.js';
 import { FindListPostsOutput } from '../../dtos/posts/find-list-posts/output.js';
+
+interface ClassRow {
+  ID: string;
+  NOME: string;
+}
+
+interface StudentRow {
+  ID: string;
+  NOME: string;
+  TURMA_ID: string | null;
+  NOME_TURMA: string | null;
+}
 
 export interface PostPersistenceRow extends PaginatedRow {
   ID: string;
-  TURMA_ID: string;
-  NOME_TURMA: string;
+  DESTINATARIO: PostAudience;
+  TURMAS: ClassRow[] | null;
+  ALUNOS: StudentRow[] | null;
   AUTOR_ID: string;
   NOME_AUTOR: string;
   TIPO: PostType;
@@ -16,12 +35,22 @@ export interface PostPersistenceRow extends PaginatedRow {
   PUBLICADO_EM: Date;
 }
 
+const toClass = (row: ClassRow): PostClass => ({ id: row.ID, name: row.NOME });
+
+const toStudent = (row: StudentRow): PostStudent => ({
+  id: row.ID,
+  name: formatPersonName(row.NOME),
+  classId: row.TURMA_ID,
+  className: row.NOME_TURMA,
+});
+
 export class PostMapper {
   static fromPersistence(row: PostPersistenceRow): Post {
     return {
       id: row.ID,
-      classId: row.TURMA_ID,
-      className: row.NOME_TURMA,
+      audience: row.DESTINATARIO,
+      classes: (row.TURMAS ?? []).map(toClass),
+      students: (row.ALUNOS ?? []).map(toStudent),
       authorId: row.AUTOR_ID,
       authorName: formatPersonName(row.NOME_AUTOR),
       type: row.TIPO,

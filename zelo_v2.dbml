@@ -111,6 +111,11 @@ Enum tipo_postagem {
   EVENTO
 }
 
+Enum destinatario_postagem {
+  TURMA [note: 'Audiência são turmas inteiras — ver POSTAGEM_TURMA']
+  ALUNO [note: 'Audiência são alunos nomeados — ver POSTAGEM_ALUNO']
+}
+
 Enum status_postagem {
   RASCUNHO
   PUBLICADA
@@ -616,7 +621,7 @@ Table TURMA {
   indexes {
     (ano_letivo_id, nome, turno) [unique, name: 'uq_turma']
   }
-  Note: 'Âncora da audiência: toda postagem pertence a uma turma.'
+  Note: 'Âncora do escopo: é sobre a turma que se concede acesso, e é dela que a audiência da postagem por turma é feita. A postagem por aluno alcança a turma indiretamente, pela MATRICULA.'
 }
 
 Table MATRICULA {
@@ -681,7 +686,7 @@ Table CONSENTIMENTO {
 
 Table POSTAGEM {
   id            uuid            [pk, default: `gen_random_uuid()`]
-  turma_id      uuid            [not null, ref: > TURMA.id]
+  destinatario  destinatario_postagem [not null, note: 'Qual tabela de audiência vale']
   autor_id      uuid            [not null, ref: > USUARIO.id]
   tipo          tipo_postagem   [not null, default: 'REGISTRO_DIARIO']
   status        status_postagem [not null, default: 'RASCUNHO']
@@ -693,10 +698,40 @@ Table POSTAGEM {
   atualizado_em timestamptz     [not null, default: `now()`]
 
   indexes {
-    (turma_id, publicado_em) [name: 'idx_postagem_feed — caminho quente, WHERE status = PUBLICADA']
+    (publicado_em) [name: 'idx_postagem_feed_v2 — caminho quente, WHERE status = PUBLICADA']
   }
   Note: '''
   Row Level Security ativa. A publicação dispara NOTIFICACAO.
+
+  # A audiência tem dois modos, e eles são exclusivos
+
+  A postagem não tem mais `turma_id`. Quem escreve escolhe o destinatário:
+
+  | `destinatario` | Onde a audiência mora | Cardinalidade |
+  |----------------|-----------------------|---------------|
+  | `TURMA`        | POSTAGEM_TURMA        | 1..N turmas   |
+  | `ALUNO`        | POSTAGEM_ALUNO        | 1..N alunos, possivelmente de turmas diferentes |
+
+  A tabela do modo não escolhido fica **vazia**. O trigger de constraint
+  `postagem_audiencia_coerente` (DEFERRABLE, avaliado no COMMIT) recusa tanto a
+  audiência vazia quanto a mistura dos dois modos — a regra cruza tabelas, então
+  CHECK não alcança, e validar no INSERT reprovaria toda escrita legítima, já que
+  postagem e audiência são gravadas na mesma transação.
+
+  # Quem enxerga
+
+  No modo TURMA, quem tem escopo sobre qualquer uma das turmas: responsável de
+  matriculado, professor e ACESSO_TURMA.
+
+  No modo ALUNO, os caminhos são **dois e separados**:
+
+  - o **responsável** entra pelo aluno (POSTAGEM_ALUNO ∩ os alunos sob sua
+    responsabilidade);
+  - a **equipe** entra pela turma onde o aluno está matriculado.
+
+  A separação não é detalhe de implementação. Um único caminho por turma faria o
+  responsável de qualquer criança daquela turma enxergar a postagem individual
+  sobre a criança dos outros — o vazamento que este modelo existe para impedir.
 
   # Os três formatos de postagem
 
@@ -720,6 +755,19 @@ Table POSTAGEM {
   '''
 }
 
+Table POSTAGEM_TURMA {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  postagem_id uuid        [not null, ref: > POSTAGEM.id]
+  turma_id    uuid        [not null, ref: > TURMA.id]
+  criado_em   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (postagem_id, turma_id) [unique, name: 'uq_postagem_turma']
+    turma_id
+  }
+  Note: 'Audiência do modo TURMA. Vazia quando `destinatario = ALUNO`.'
+}
+
 Table POSTAGEM_ALUNO {
   id          uuid        [pk, default: `gen_random_uuid()`]
   postagem_id uuid        [not null, ref: > POSTAGEM.id]
@@ -730,6 +778,14 @@ Table POSTAGEM_ALUNO {
     (postagem_id, aluno_id) [unique, name: 'uq_postagem_aluno']
     aluno_id
   }
+  Note: '''
+  Audiência do modo ALUNO. Vazia quando `destinatario = TURMA`.
+
+  **Mudou de sentido.** Antes esta tabela marcava "quais crianças aparecem no
+  registro" — rótulo, sem efeito sobre visibilidade. Agora ela **é** a audiência:
+  as linhas dizem para quem a postagem é. Não existe mais o conceito separado de
+  marcação; se ele voltar a ser necessário, precisa de tabela própria.
+  '''
 }
 
 Table MIDIA {

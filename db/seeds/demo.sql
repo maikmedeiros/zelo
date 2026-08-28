@@ -12,10 +12,13 @@
 --   RESPONSAVEL_ALUNO → MATRICULA   → Bruno (pai do Théo, Turma A)
 --   PROFESSOR_TURMA                 → Ana (titular da Turma A)
 --   ACESSO_TURMA                    → Diana (coordenação, acesso à Turma A)
--- Mais os três controles negativos: Carla (vínculo só com a Turma B), Elias (sem vínculo
--- nenhum) e Fábio (sem perfil nenhum). Elias é o caso mais importante — ele TEM a
--- capability `VIEW:POST`, então uma falha de escopo aparece como 200 indevido, não como
--- 403. O Fábio é o oposto: sem capability, é ele quem exercita o 403 de qualquer rota.
+-- Mais os quatro controles negativos:
+--   Gabriel — pai de OUTRA criança da mesma Turma A. É ele quem prova que a postagem
+--             endereçada a um aluno não vaza para os demais responsáveis da turma.
+--   Carla   — vínculo só com a Turma B.
+--   Elias   — sem vínculo nenhum. TEM a capability `VIEW:POST`, então uma falha de escopo
+--             aparece como 200 indevido, não como 403.
+--   Fábio   — sem perfil nenhum: é ele quem exercita o 403 de qualquer rota.
 --
 -- Idempotente: UUIDs fixos e ON CONFLICT DO NOTHING em tudo. Pode rodar quantas vezes
 -- quiser sem duplicar linha.
@@ -67,7 +70,9 @@ INSERT INTO pessoa (id, escola_id, nome, data_nascimento, email_contato) VALUES
   ('33333333-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', 'Elias Faria',      DATE '1986-11-17', 'elias@zelo.test'),
   ('33333333-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', 'Théo Carvalho',    DATE '2023-03-08', NULL),
   ('33333333-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'Lívia Duarte',     DATE '2022-06-19', NULL),
-  ('33333333-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', 'Fábio Gomes',      DATE '1994-02-14', 'fabio@zelo.test')
+  ('33333333-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', 'Fábio Gomes',      DATE '1994-02-14', 'fabio@zelo.test'),
+  ('33333333-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', 'Gabriel Nunes',    DATE '1989-05-02', 'gabriel@zelo.test'),
+  ('33333333-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Helena Nunes',     DATE '2023-01-27', NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -83,7 +88,8 @@ INSERT INTO usuario (id, pessoa_id, email, senha_hash, email_verificado) VALUES
   ('44444444-0000-0000-0000-000000000004', '33333333-0000-0000-0000-000000000004', 'diana@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$8JOZye8uxdTk+xL30RoXjQ$0ZtNzjv4InwuJdE/1zMY3gbS3rpg8oSo/MU1ZeffXXw', true),
   ('44444444-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005', 'elias@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2HDHI2bpbcybMmhzB6v1tA$b+QVfUWNC7DTpapLoTSiUkK1LmgyfgmuU2mN1Y90zsI', true),
   -- Sem linha em USUARIO_PERFIL de propósito: loga, mas não tem capability nenhuma.
-  ('44444444-0000-0000-0000-000000000008', '33333333-0000-0000-0000-000000000008', 'fabio@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$IauyeR3mjQZzuErJdjitBg$jH8lD3AvhSjz8jrxKcYBohAeOo56os2XG9K/tRzYh8w', true)
+  ('44444444-0000-0000-0000-000000000008', '33333333-0000-0000-0000-000000000008', 'fabio@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$IauyeR3mjQZzuErJdjitBg$jH8lD3AvhSjz8jrxKcYBohAeOo56os2XG9K/tRzYh8w', true),
+  ('44444444-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009', 'gabriel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2d3hWpRdWKTBGgoOAb5p3A$S1KMooYK1fVfv/6oE4hiyzadVBLctiTi6TB5TqFfVYQ', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -92,13 +98,15 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO aluno (id, pessoa_id, codigo) VALUES
   ('55555555-0000-0000-0000-000000000006', '33333333-0000-0000-0000-000000000006', 'AL-2026-001'),
-  ('55555555-0000-0000-0000-000000000007', '33333333-0000-0000-0000-000000000007', 'AL-2026-002')
+  ('55555555-0000-0000-0000-000000000007', '33333333-0000-0000-0000-000000000007', 'AL-2026-002'),
+  ('55555555-0000-0000-0000-00000000000a', '33333333-0000-0000-0000-00000000000a', 'AL-2026-003')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO responsavel (id, pessoa_id) VALUES
   ('56666666-0000-0000-0000-000000000002', '33333333-0000-0000-0000-000000000002'),
   ('56666666-0000-0000-0000-000000000003', '33333333-0000-0000-0000-000000000003'),
-  ('56666666-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005')
+  ('56666666-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005'),
+  ('56666666-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO professor (id, pessoa_id, registro, formacao) VALUES
@@ -111,14 +119,16 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO matricula (id, aluno_id, turma_id, data_inicio) VALUES
   ('58888888-0000-0000-0000-000000000006', '55555555-0000-0000-0000-000000000006', '22222222-0000-0000-0000-00000000000a', DATE '2026-02-02'),
-  ('58888888-0000-0000-0000-000000000007', '55555555-0000-0000-0000-000000000007', '22222222-0000-0000-0000-00000000000b', DATE '2026-02-02')
+  ('58888888-0000-0000-0000-000000000007', '55555555-0000-0000-0000-000000000007', '22222222-0000-0000-0000-00000000000b', DATE '2026-02-02'),
+  ('58888888-0000-0000-0000-00000000000a', '55555555-0000-0000-0000-00000000000a', '22222222-0000-0000-0000-00000000000a', DATE '2026-02-02')
 ON CONFLICT (id) DO NOTHING;
 
 -- Origem 1 — responsável: o escopo chega por RESPONSAVEL_ALUNO → MATRICULA. Elias não
 -- aparece aqui: é responsável cadastrado, sem filho matriculado.
 INSERT INTO responsavel_aluno (id, responsavel_id, aluno_id, parentesco, pode_consentir, financeiro) VALUES
   ('59999999-0000-0000-0000-000000000002', '56666666-0000-0000-0000-000000000002', '55555555-0000-0000-0000-000000000006', 'PAI', true, true),
-  ('59999999-0000-0000-0000-000000000003', '56666666-0000-0000-0000-000000000003', '55555555-0000-0000-0000-000000000007', 'MAE', true, true)
+  ('59999999-0000-0000-0000-000000000003', '56666666-0000-0000-0000-000000000003', '55555555-0000-0000-0000-000000000007', 'MAE', true, true),
+  ('59999999-0000-0000-0000-000000000009', '56666666-0000-0000-0000-000000000009', '55555555-0000-0000-0000-00000000000a', 'PAI', true, true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Origem 2 — professor.
@@ -267,7 +277,8 @@ INSERT INTO usuario_perfil (id, usuario_id, perfil_id, concedido_por, data_inici
   ('67777777-0000-0000-0000-000000000002', '44444444-0000-0000-0000-000000000002', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
   ('67777777-0000-0000-0000-000000000003', '44444444-0000-0000-0000-000000000003', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
   ('67777777-0000-0000-0000-000000000004', '44444444-0000-0000-0000-000000000004', '66666666-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
-  ('67777777-0000-0000-0000-000000000005', '44444444-0000-0000-0000-000000000005', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02')
+  ('67777777-0000-0000-0000-000000000005', '44444444-0000-0000-0000-000000000005', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
+  ('67777777-0000-0000-0000-000000000009', '44444444-0000-0000-0000-000000000009', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02')
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -294,21 +305,23 @@ ON CONFLICT (id) DO NOTHING;
 -- CONTEÚDO
 -- =============================================================================
 
-INSERT INTO postagem (id, turma_id, autor_id, tipo, status, titulo, corpo, referente_a, publicado_em) VALUES
+-- Seis postagens cobrindo os dois modos de destinatário. A audiência não mora mais na
+-- postagem: `destinatario` diz qual tabela vale, e a outra fica vazia (o trigger
+-- `postagem_audiencia_coerente` recusa a mistura).
+
+INSERT INTO postagem (id, destinatario, autor_id, tipo, status, titulo, corpo, referente_a, publicado_em) VALUES
   (
-    '77777777-0000-0000-0000-000000000001',
-    '22222222-0000-0000-0000-00000000000a',
+    '77777777-0000-0000-0000-000000000001', 'TURMA',
     '44444444-0000-0000-0000-000000000001',
     'REGISTRO_DIARIO', 'PUBLICADA',
     'Roda de leitura da manhã',
-    'Hoje lemos "O Grúfalo" na roda. O Théo escolheu o livro e virou as páginas sozinho.',
+    'Hoje lemos "O Grúfalo" na roda. As crianças escolheram o livro e viraram as páginas.',
     DATE '2026-08-27', TIMESTAMPTZ '2026-08-27 11:20:00-03'
   ),
   -- Turma B, para provar que a lista da Turma A não a inclui. Autoria da escola: a Ana só
   -- leciona na Turma A e não teria como publicar aqui.
   (
-    '77777777-0000-0000-0000-000000000002',
-    '22222222-0000-0000-0000-00000000000b',
+    '77777777-0000-0000-0000-000000000002', 'TURMA',
     '00000000-0000-0000-0000-000000000003',
     'RECADO', 'PUBLICADA',
     'Reunião de pais do Maternal II B',
@@ -318,18 +331,59 @@ INSERT INTO postagem (id, turma_id, autor_id, tipo, status, titulo, corpo, refer
   -- Rascunho na Turma A: o feed do responsável não pode trazê-lo, mesmo ele tendo escopo
   -- sobre a turma. Separa o filtro de escopo do filtro de status.
   (
-    '77777777-0000-0000-0000-000000000003',
-    '22222222-0000-0000-0000-00000000000a',
+    '77777777-0000-0000-0000-000000000003', 'TURMA',
     '44444444-0000-0000-0000-000000000001',
     'EVENTO', 'RASCUNHO',
     'Festa junina — rascunho',
     'Ainda organizando a lista de barracas.',
     DATE '2026-08-28', NULL
+  ),
+  -- Modo ALUNO, um único aluno. É o teste de não-vazamento: o Gabriel é pai de outra
+  -- criança da MESMA turma e não pode enxergar esta linha; a Ana e a Diana, sim, porque
+  -- são equipe da turma onde o Théo está matriculado.
+  (
+    '77777777-0000-0000-0000-000000000004', 'ALUNO',
+    '44444444-0000-0000-0000-000000000001',
+    'REGISTRO_DIARIO', 'PUBLICADA',
+    'O Théo dormiu bem hoje',
+    'Dormiu 1h40 sem acordar e acordou tranquilo. Aceitou a fruta da tarde inteira.',
+    DATE '2026-08-27', TIMESTAMPTZ '2026-08-27 15:05:00-03'
+  ),
+  -- Modo ALUNO com alunos de TURMAS DIFERENTES — o caso que a cardinalidade antiga não
+  -- conseguia representar.
+  (
+    '77777777-0000-0000-0000-000000000005', 'ALUNO',
+    '00000000-0000-0000-0000-000000000003',
+    'EVENTO', 'PUBLICADA',
+    'Fotos do passeio ao parque',
+    'Seguem as fotos das crianças que participaram do passeio de quinta.',
+    DATE '2026-08-25', TIMESTAMPTZ '2026-08-25 18:40:00-03'
+  ),
+  -- Modo TURMA com MAIS DE UMA turma — o outro caso novo.
+  (
+    '77777777-0000-0000-0000-000000000006', 'TURMA',
+    '00000000-0000-0000-0000-000000000003',
+    'RECADO', 'PUBLICADA',
+    'Recesso de setembro',
+    'Não haverá aula nos dias 7 e 8 de setembro. Voltamos na quarta.',
+    DATE '2026-08-24', TIMESTAMPTZ '2026-08-24 09:00:00-03'
   )
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO postagem_turma (id, postagem_id, turma_id) VALUES
+  ('78777777-0000-0000-0000-000000000001', '77777777-0000-0000-0000-000000000001', '22222222-0000-0000-0000-00000000000a'),
+  ('78777777-0000-0000-0000-000000000002', '77777777-0000-0000-0000-000000000002', '22222222-0000-0000-0000-00000000000b'),
+  ('78777777-0000-0000-0000-000000000003', '77777777-0000-0000-0000-000000000003', '22222222-0000-0000-0000-00000000000a'),
+  ('78777777-0000-0000-0000-000000000061', '77777777-0000-0000-0000-000000000006', '22222222-0000-0000-0000-00000000000a'),
+  ('78777777-0000-0000-0000-000000000062', '77777777-0000-0000-0000-000000000006', '22222222-0000-0000-0000-00000000000b')
+ON CONFLICT (id) DO NOTHING;
+
+-- `postagem_aluno` mudou de sentido na migration 005: era marcação de quem aparece, agora
+-- é audiência. Só postagem de destinatário ALUNO tem linha aqui.
 INSERT INTO postagem_aluno (id, postagem_id, aluno_id) VALUES
-  ('78888888-0000-0000-0000-000000000001', '77777777-0000-0000-0000-000000000001', '55555555-0000-0000-0000-000000000006')
+  ('78888888-0000-0000-0000-000000000004', '77777777-0000-0000-0000-000000000004', '55555555-0000-0000-0000-000000000006'),
+  ('78888888-0000-0000-0000-000000000051', '77777777-0000-0000-0000-000000000005', '55555555-0000-0000-0000-000000000006'),
+  ('78888888-0000-0000-0000-000000000052', '77777777-0000-0000-0000-000000000005', '55555555-0000-0000-0000-000000000007')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO postagem_comentario (id, postagem_id, autor_id, corpo, status) VALUES

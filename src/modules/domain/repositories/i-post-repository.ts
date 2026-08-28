@@ -11,9 +11,10 @@ export interface ListPostsFilters {
   page: number;
   limit: number;
   classId: string | null;
+  studentId: string | null;
   type: PostType | null;
   // `null` não é "sem filtro por engano": é o ator de abrangência ESCOLA, para quem o
-  // recorte de turma não se aplica. Quem decide isso é o controller, não a consulta.
+  // recorte de audiência não se aplica. Quem decide isso é o controller, não a consulta.
   viewerId: string | null;
 }
 

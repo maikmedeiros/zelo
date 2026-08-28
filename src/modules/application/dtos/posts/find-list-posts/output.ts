@@ -1,9 +1,15 @@
-import { PostType } from '../../../../domain/entities/post.js';
+import {
+  PostAudience,
+  PostClass,
+  PostStudent,
+  PostType,
+} from '../../../../domain/entities/post.js';
 
 export interface FindListPostsOutput {
   id: string;
-  classId: string;
-  className: string;
+  audience: PostAudience;
+  classes: PostClass[];
+  students: PostStudent[];
   authorId: string;
   authorName: string;
   type: PostType;

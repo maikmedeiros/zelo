@@ -5,6 +5,7 @@ export const findListPostsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   classId: z.guid().optional(),
+  studentId: z.guid().optional(),
   type: z.enum(POST_TYPES).optional(),
 });
 

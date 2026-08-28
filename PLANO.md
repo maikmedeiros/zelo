@@ -17,7 +17,7 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 28/08/2026
 
-Migrations `001`–`004` aplicadas. `src/modules/` tem **um** recurso: `sessions`. O
+Migrations `001`–`005` aplicadas. `src/modules/` tem **um** recurso: `sessions`. O
 `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas montadas antes
 dele. `npm run build`, `lint:eslint:check` e `lint:security` passam limpos.
 
@@ -288,7 +288,7 @@ Decisões tomadas aqui, que valem para as próximas rotas:
 O rascunho da Turma A não aparece para ninguém, e o `fabio` (sem perfil) recebe 403 — o que
 separa "faltou capability" de "o recorte funcionou".
 
-**2.4 — `GET /posts/:postId` e extração da CTE** para
+**2.4 — `GET /posts/:postId` e extração das CTEs** para
 `src/modules/infra/repositories/sql/turma-escopo.ts` — as três origens do vínculo, para os
 repositórios importarem em vez de reescrever. Este é o antigo item 0.6, movido para cá: a
 extração acontece no **segundo** consumidor, com o primeiro já provado.
@@ -302,6 +302,88 @@ comentário em cada uma apontando para a outra.
 
 **2.5 — `POST`, `PATCH`, `DELETE`**, com a checagem de dono via
 `authz.can(actor, Feature.X, { ownerId, groupId })` recebida pelo use-case como callback.
+
+## Fase 2r — Audiência da postagem (refactor)
+
+Entrou depois da 2.2, quando ficou claro que o modelo v1 do DBML não representava o que o
+produto precisa. A `postagem` tinha `turma_id NOT NULL` — uma turma, sempre uma, obrigatória.
+
+**O que a postagem passa a ser**, pela migration
+[005_postagem_audiencia.sql](db/migrations/005_postagem_audiencia.sql):
+
+| `destinatario` | Audiência mora em | Cardinalidade                                   |
+| -------------- | ----------------- | ----------------------------------------------- |
+| `TURMA`        | `postagem_turma`  | 1..N turmas                                     |
+| `ALUNO`        | `postagem_aluno`  | 1..N alunos, possivelmente de turmas diferentes |
+
+Os modos são **exclusivos**: quem publica escolhe um, e a tabela do outro fica vazia.
+
+**`postagem_aluno` mudou de significado.** Na `001` ela marcava "quais crianças aparecem no
+registro" — rótulo, sem efeito sobre visibilidade. Agora ela **é** audiência. Nenhum código
+lia a tabela com o sentido antigo, então a troca não quebrou nada, mas o conceito de
+marcação deixou de existir; se voltar a ser necessário, precisa de tabela própria.
+
+### A regra de visibilidade tem dois caminhos, e a separação é o ponto
+
+No modo `TURMA`, quem tem escopo sobre qualquer uma das turmas enxerga — as três origens de
+sempre.
+
+No modo `ALUNO`:
+
+- o **responsável** entra **pelo aluno** (`postagem_aluno` ∩ os alunos sob sua
+  responsabilidade);
+- a **equipe** entra **pela turma do aluno** (`professor_turma` e `acesso_turma`, via
+  `matricula`).
+
+Um caminho único por turma faria o responsável de **qualquer** criança daquela turma
+enxergar a postagem individual sobre a criança dos outros. É o vazamento que o projeto
+inteiro existe para impedir, e por isso a `005` cria duas views novas — `turma_da_equipe` e
+`aluno_no_escopo` — em vez de reaproveitar a `turma_no_escopo`, que mistura as origens.
+
+### O que o banco garante e o que a aplicação garante
+
+"Modo TURMA exige ao menos uma turma e nenhum aluno" é invariante **entre tabelas**: CHECK
+não alcança e FK também não. A `005` resolve com um **constraint trigger `DEFERRABLE
+INITIALLY DEFERRED`** — postagem e audiência são gravadas na mesma transação, então validar
+no INSERT reprovaria toda escrita legítima; avaliar no COMMIT é o único momento correto.
+Verificado: audiência vazia e mistura dos dois modos são recusadas pelo banco.
+
+### O que mudou fora do banco
+
+- `zelo_v2.dbml` — `POSTAGEM_TURMA` nova, `POSTAGEM` sem `turma_id`, e a nota de
+  `POSTAGEM_ALUNO` registrando a mudança de sentido.
+- `GET /posts` — o item da lista devolve `audience` mais `classes[]` **ou** `students[]` (com
+  a turma atual de cada aluno). Filtro `studentId` novo; o `classId` passou a alcançar também
+  a postagem endereçada a aluno matriculado naquela turma.
+- `db/seeds/demo.sql` — seis postagens cobrindo os dois modos, incluindo uma para aluno único,
+  uma para alunos de turmas diferentes e uma para duas turmas. Personas novas: **Gabriel**
+  (pai de outra criança da mesma Turma A) e a filha **Helena**.
+
+### Verificação
+
+| Ator      | Vínculo                     | Vê  |
+| --------- | --------------------------- | --- |
+| `admin`   | abrangência ESCOLA          | 5   |
+| `ana`     | professora da Turma A       | 4   |
+| `diana`   | `ACESSO_TURMA` na Turma A   | 4   |
+| `bruno`   | pai do Théo (Turma A)       | 4   |
+| `gabriel` | pai da Helena (**Turma A**) | 2   |
+| `carla`   | mãe da Lívia (Turma B)      | 3   |
+| `elias`   | sem vínculo                 | 0   |
+| `fabio`   | sem capability              | 403 |
+
+O `gabriel` é a linha que importa: mesma turma do Théo, e **não** enxerga nem "O Théo dormiu
+bem hoje" nem "Fotos do passeio". A `carla`, de outra turma, enxerga "Fotos do passeio"
+porque a Lívia é destinatária — a postagem que atravessa turmas, que a cardinalidade antiga
+não conseguia representar.
+
+### Pendência aberta
+
+O array `students` vai **completo** para todo mundo que enxerga a postagem. Na prática a
+`carla` lê que o Théo também é destinatário de "Fotos do passeio". Para uma foto de grupo
+isso talvez seja o desejado; para um recado individual endereçado a duas famílias, é
+divulgação de participação. Decidir se o array deve ser filtrado por quem olha — e, se sim,
+o mesmo vale para o `GET /posts/:postId` da 2.4.
 
 ## Fase 3 — Cadastros, em ordem de dependência
 
