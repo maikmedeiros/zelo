@@ -6,6 +6,24 @@ export const POST_AUDIENCES = ['TURMA', 'ALUNO'] as const;
 
 export type PostAudience = (typeof POST_AUDIENCES)[number];
 
+export const POST_STATUSES = ['RASCUNHO', 'PUBLICADA', 'REMOVIDA'] as const;
+
+export type PostStatus = (typeof POST_STATUSES)[number];
+
+/**
+ * O mínimo para autorizar uma escrita: quem é o dono e quais turmas a postagem alcança.
+ * Carregado antes da regra, para o guard de abrangência decidir sem trazer a postagem toda.
+ */
+export interface PostOwnership {
+  id: string;
+  authorId: string;
+  status: PostStatus;
+  audience: PostAudience;
+  /** Turmas alcançadas — diretas no modo TURMA, via matrícula no modo ALUNO. */
+  groupIds: string[];
+  hasBody: boolean;
+}
+
 export interface PostClass {
   id: string;
   name: string;
@@ -31,5 +49,6 @@ export interface Post {
   title: string | null;
   body: string | null;
   referenceDate: string;
-  publishedAt: Date;
+  /** `null` enquanto RASCUNHO — o modelo só exige a data na transição para PUBLICADA. */
+  publishedAt: Date | null;
 }

@@ -31,7 +31,7 @@ export interface PostOutput {
   title: string | null;
   body: string | null;
   referenceDate: string;
-  publishedAt: string;
+  publishedAt: string | null;
 }
 
 export interface PostPersistenceRow extends PaginatedRow {
@@ -45,7 +45,7 @@ export interface PostPersistenceRow extends PaginatedRow {
   TITULO: string | null;
   CORPO: string | null;
   REFERENTE_A: string;
-  PUBLICADO_EM: Date;
+  PUBLICADO_EM: Date | null;
 }
 
 const toClass = (row: ClassRow): PostClass => ({ id: row.ID, name: row.NOME });
@@ -75,6 +75,6 @@ export class PostMapper {
   }
 
   static toOutput(post: Post): PostOutput {
-    return { ...post, publishedAt: post.publishedAt.toISOString() };
+    return { ...post, publishedAt: post.publishedAt?.toISOString() ?? null };
   }
 }

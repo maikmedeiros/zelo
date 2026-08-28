@@ -29,6 +29,8 @@ export class FindListPostsController {
       studentId: query.studentId ?? null,
       authorId: query.authorId ?? null,
       type: query.type ?? null,
+      status: query.status,
+      actorId: actor.id,
       viewerId: seesWholeSchool ? null : actor.id,
     });
 

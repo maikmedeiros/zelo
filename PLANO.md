@@ -361,88 +361,67 @@ capabilities de conteúdo do `ADMINISTRADOR` para `TURMA` e dando a ele `ACESSO_
 precisar enxergar. Vale lembrar que os perfis `PROFESSOR`, `RESPONSAVEL` e `COORDENACAO` do
 seed já seguem a regra: nenhum deles tem conteúdo em `ESCOLA`.
 
-**2.5 — `POST`, `PATCH`, `DELETE`**, com a checagem de dono via
-`authz.can(actor, Feature.X, { ownerId, groupId })` recebida pelo use-case como callback.
+**2.5 — Escritas** ✅ São **quatro** rotas, não três: o catálogo tem `PUBLISH:POST` separado
+de `UPDATE:POST`, e o modelo trata publicar como transição de estado, não edição de campo.
 
-## Fase 2r — Audiência da postagem (refactor)
+| Rota                              | Capability     | Observação                                            |
+| --------------------------------- | -------------- | ----------------------------------------------------- |
+| `POST /posts`                     | `CREATE:POST`  | nasce `RASCUNHO`; autoria sai do ator, nunca do corpo |
+| `PATCH /posts/:postId`            | `UPDATE:POST`  | parcial; audiência só enquanto rascunho               |
+| `POST /posts/:postId/publication` | `PUBLISH:POST` | rota própria, antes da rota de param                  |
+| `DELETE /posts/:postId`           | `DELETE:POST`  | lógico: `status = REMOVIDA`                           |
 
-Entrou depois da 2.2, quando ficou claro que o modelo v1 do DBML não representava o que o
-produto precisa. A `postagem` tinha `turma_id NOT NULL` — uma turma, sempre uma, obrigatória.
+### Escopo de escrita — o que não existia antes
 
-**O que a postagem passa a ser**, pela migration
-[005_postagem_audiencia.sql](db/migrations/005_postagem_audiencia.sql):
+Até aqui todo escopo era de leitura. Endereçar é escrita, e `CREATE:POST:TURMA` viraria
+`ESCOLA` na prática se bastasse mandar o id de qualquer turma no corpo. `assertTargetsInScope`
+consulta quais alvos estão fora e lança `403` listando-os no `cause`.
 
-| `destinatario` | Audiência mora em | Cardinalidade                                   |
-| -------------- | ----------------- | ----------------------------------------------- |
-| `TURMA`        | `postagem_turma`  | 1..N turmas                                     |
-| `ALUNO`        | `postagem_aluno`  | 1..N alunos, possivelmente de turmas diferentes |
+O escopo usado é **o mesmo da leitura** (as três origens), não só o de equipe: abrangência
+`TURMA` significa "as minhas turmas", e ter duas definições dela seria armadilha. Restringir a
+escrita a professor e acesso concedido é trocar `TURMA_NO_ESCOPO` por `TURMA_DA_EQUIPE` nas
+duas consultas.
 
-Os modos são **exclusivos**: quem publica escolhe um, e a tabela do outro fica vazia.
+### Checagem de dono — o primeiro uso real do `authz.can`
 
-**`postagem_aluno` mudou de significado.** Na `001` ela marcava "quais crianças aparecem no
-registro" — rótulo, sem efeito sobre visibilidade. Agora ela **é** audiência. Nenhum código
-lia a tabela com o sentido antigo, então a troca não quebrou nada, mas o conceito de
-marcação deixou de existir; se voltar a ser necessário, precisa de tabela própria.
+`makePostGuard` monta o callback que o use-case recebe, mantendo o `authz` fora da aplicação.
+Como a postagem alcança várias turmas e `ResourceScope` carrega uma só, a abrangência `TURMA`
+é testada turma a turma e basta uma passar; a chamada sem `groupId` cobre `PROPRIA` e `ESCOLA`.
 
-### A regra de visibilidade tem dois caminhos, e a separação é o ponto
+Falha de guard é **404, não 403** — mesma razão da 2.4.
 
-No modo `TURMA`, quem tem escopo sobre qualquer uma das turmas enxerga — as três origens de
-sempre.
+### Rascunho
 
-No modo `ALUNO`:
+`status=RASCUNHO` na listagem devolve **só o que o próprio ator escreveu**, inclusive para
+quem tem abrangência `ESCOLA`: rascunho não tem audiência, não chegou a ninguém. Por isso o
+filtro usa `actorId`, e não `viewerId`. Vale também no detalhe — sem isso o autor não abriria
+o próprio rascunho por id, que foi um bug encontrado no teste.
 
-- o **responsável** entra **pelo aluno** (`postagem_aluno` ∩ os alunos sob sua
-  responsabilidade);
-- a **equipe** entra **pela turma do aluno** (`professor_turma` e `acesso_turma`, via
-  `matricula`).
+Efeito colateral do rascunho: `publishedAt` passou a ser **anulável** na entity e na saída.
 
-Um caminho único por turma faria o responsável de **qualquer** criança daquela turma
-enxergar a postagem individual sobre a criança dos outros. É o vazamento que o projeto
-inteiro existe para impedir, e por isso a `005` cria duas views novas — `turma_da_equipe` e
-`aluno_no_escopo` — em vez de reaproveitar a `turma_no_escopo`, que mistura as origens.
+### Regras de transição
 
-### O que o banco garante e o que a aplicação garante
-
-"Modo TURMA exige ao menos uma turma e nenhum aluno" é invariante **entre tabelas**: CHECK
-não alcança e FK também não. A `005` resolve com um **constraint trigger `DEFERRABLE
-INITIALLY DEFERRED`** — postagem e audiência são gravadas na mesma transação, então validar
-no INSERT reprovaria toda escrita legítima; avaliar no COMMIT é o único momento correto.
-Verificado: audiência vazia e mistura dos dois modos são recusadas pelo banco.
-
-### O que mudou fora do banco
-
-- `zelo_v2.dbml` — `POSTAGEM_TURMA` nova, `POSTAGEM` sem `turma_id`, e a nota de
-  `POSTAGEM_ALUNO` registrando a mudança de sentido.
-- `GET /posts` — o item da lista devolve `audience` mais `classes[]` **ou** `students[]` (com
-  a turma atual de cada aluno). Filtro `studentId` novo; o `classId` passou a alcançar também
-  a postagem endereçada a aluno matriculado naquela turma.
-- `db/seeds/demo.sql` — seis postagens cobrindo os dois modos, incluindo uma para aluno único,
-  uma para alunos de turmas diferentes e uma para duas turmas. Personas novas: **Gabriel**
-  (pai de outra criança da mesma Turma A) e a filha **Helena**.
+- **Publicar exige corpo.** O modelo pede corpo OU ao menos uma mídia; mídia é Fase 4, então
+  por ora só o corpo satisfaz. `TODO(midia)` marca o ponto onde a condição relaxa. → `422`
+- **Republicar é conflito**, não violação de regra. → `409`
+- **Audiência é imutável depois de publicada.** Mudar destinatário é tirar de quem já leu ou
+  entregar a quem não recebeu, e o modelo não registra nem uma coisa nem outra. → `422`
 
 ### Verificação
 
-| Ator      | Vínculo                     | Vê  |
-| --------- | --------------------------- | --- |
-| `admin`   | abrangência ESCOLA          | 5   |
-| `ana`     | professora da Turma A       | 4   |
-| `diana`   | `ACESSO_TURMA` na Turma A   | 4   |
-| `bruno`   | pai do Théo (Turma A)       | 4   |
-| `gabriel` | pai da Helena (**Turma A**) | 2   |
-| `carla`   | mãe da Lívia (Turma B)      | 3   |
-| `elias`   | sem vínculo                 | 0   |
-| `fabio`   | sem capability              | 403 |
+Ciclo completo exercitado: criar (`201`, nasce sem `publishedAt`) → editar (`200`) →
+publicar (`200`, com data) → aparecer no feed do responsável → remover (`204`) → sumir do
+feed, `404` por id, e a **linha permanece no banco com `status = REMOVIDA`**.
 
-O `gabriel` é a linha que importa: mesma turma do Théo, e **não** enxerga nem "O Théo dormiu
-bem hoje" nem "Fotos do passeio". A `carla`, de outra turma, enxerga "Fotos do passeio"
-porque a Lívia é destinatária — a postagem que atravessa turmas, que a cardinalidade antiga
-não conseguia representar.
+Escopo de escrita: a `ana` cria para a Turma A e para o Théo (aluno dela) — `201`; para a
+Turma B e para a Lívia (aluna da B) — `403` com o id no `cause`. O `bruno`, sem
+`CREATE:POST`, — `403`. Corpo misturando os dois modos e chave desconhecida — `400`.
 
-### Pendência que a 2.4 fechou
+Dono: a `ana` edita a própria; a `diana` (coordenação com `UPDATE:POST:TURMA` na turma)
+também edita — é o que a concessão diz, e serve à moderação; o `bruno`, sem a capability,
+`403`.
 
-O array `students` ia **completo** para todo mundo que enxergava a postagem — a `carla` lia
-que o Théo também era destinatário de "Fotos do passeio". O recorte da linha funcionava, mas
-o do conteúdo não existia. Resolvido na 2.4: o array é filtrado pelo ator, nas duas rotas.
+Matriz de audiência intacta depois de tudo: 5 / 4 / 4 / 4 / 2 / 3.
 
 ## Fase 3 — Cadastros, em ordem de dependência
 

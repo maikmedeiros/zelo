@@ -17,7 +17,7 @@ export class FindPostByIdController {
     const { postId } = request.params as unknown as FindPostByIdInput;
 
     const seesWholeSchool = this.scopesOf(actor, Feature.PostView).includes('ESCOLA');
-    const post = await this.useCase.execute(postId, seesWholeSchool ? null : actor.id);
+    const post = await this.useCase.execute(postId, seesWholeSchool ? null : actor.id, actor.id);
 
     return { statusCode: 200, body: PostMapper.toOutput(post) };
   }
