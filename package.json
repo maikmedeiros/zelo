@@ -12,6 +12,7 @@
     "build": "tsc && tsc-alias",
     "predev": "docker compose --env-file .env.development up -d --wait postgres mongo",
     "db:migrate": "tsx src/main/migrate.ts",
+    "db:seed": "docker compose --env-file .env.development exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"' < db/seeds/demo.sql",
     "dev": "tsx watch src/main/start.ts",
     "dev:sql": "SQL_LOG_STATEMENTS=true npm run dev",
     "db:up": "docker compose --env-file .env.development up -d --wait",

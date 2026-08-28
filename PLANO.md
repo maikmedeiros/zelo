@@ -21,17 +21,17 @@ Migrations `001`–`004` aplicadas. `src/modules/` tem **um** recurso: `sessions
 `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas montadas antes
 dele. `npm run build`, `lint:eslint:check` e `lint:security` passam limpos.
 
-| Fase                          | Estado                                                |
-| ----------------------------- | ----------------------------------------------------- |
-| 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2)             |
-| 1 — Login e sessão            | ✅ concluída e verificada                             |
-| 1b — CRUD de tokens de API    | ⬜ **próxima**                                        |
-| 2 — Postagens                 | ⬜ (precisa do seed de demonstração para ser aferida) |
-| 3 — Cadastros                 | ⬜                                                    |
-| 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)                           |
-| 4 — Conteúdo e interação      | ⬜                                                    |
-| 5 — Consentimento e relatório | ⬜                                                    |
-| 6 — RLS                       | ⬜                                                    |
+| Fase                          | Estado                                      |
+| ----------------------------- | ------------------------------------------- |
+| 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2)   |
+| 1 — Login e sessão            | ✅ concluída e verificada                   |
+| 1b — CRUD de tokens de API    | ⬜ **próxima**                              |
+| 2 — Postagens                 | ⬜ (2.1 ✅ — seed de demonstração aplicado) |
+| 3 — Cadastros                 | ⬜                                          |
+| 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)                 |
+| 4 — Conteúdo e interação      | ⬜                                          |
+| 5 — Consentimento e relatório | ⬜                                          |
+| 6 — RLS                       | ⬜                                          |
 
 Verificação da Fase 1 executada contra `localhost:3003`, com o administrador de bootstrap:
 `201` no login (com `Set-Cookie` httpOnly), `200` no `sessions/current` (69 capabilities,
@@ -222,10 +222,34 @@ controller via `paginated()`; o escopo é resolvido no controller com
 
 **Ordem interna, porque uma coisa depende da outra:**
 
-**2.1 — Seed de demonstração** (migration `006`, ou script separado se preferir não versionar
-dado de teste). Hoje o banco tem **um** usuário: o `admin`, sem turma nenhuma. Sem um
-responsável com filho matriculado e um usuário sem vínculo, o recorte de escopo não tem como
-ser exercido — e é exatamente o dado do teste que sustenta o capítulo de resultados.
+**2.1 — Seed de demonstração** ✅ [db/seeds/demo.sql](db/seeds/demo.sql), aplicado por
+`npm run db:seed`. Ficou **fora** de `db/migrations/` de propósito: migration roda sozinha no
+boot em todo ambiente, e dado de teste com senha conhecida não pode viajar junto — é a mesma
+dívida que a `004` já carrega e não vale repetir.
+
+Cinco personas (senha `zelo123`), cobrindo as três origens de escopo e os dois controles
+negativos:
+
+| Login             | Perfil        | Vínculo                             | Turma resolvida |
+| ----------------- | ------------- | ----------------------------------- | --------------- |
+| `ana@zelo.test`   | `PROFESSOR`   | `PROFESSOR_TURMA` titular           | Maternal I A    |
+| `bruno@zelo.test` | `RESPONSAVEL` | pai do Théo, matriculado            | Maternal I A    |
+| `carla@zelo.test` | `RESPONSAVEL` | mãe da Lívia, matriculada           | Maternal II B   |
+| `diana@zelo.test` | `COORDENACAO` | `ACESSO_TURMA` (motivo COORDENACAO) | Maternal I A    |
+| `elias@zelo.test` | `RESPONSAVEL` | nenhum                              | —               |
+
+Elias é a persona que importa: ele **tem** `VIEW:POST`, então uma falha de escopo aparece
+como 200 indevido, não como 403 — é o que separa "faltou permissão" de "o recorte
+funcionou". Carla é o controle mais fino: tem vínculo, mas com a outra turma.
+
+Três postagens (uma publicada em cada turma, mais um rascunho na Turma A, para separar o
+filtro de escopo do filtro de status), consentimentos, comentário e reação.
+
+O seed também cria três **perfis de escola** (`PROFESSOR`, `RESPONSAVEL`, `COORDENACAO`,
+`escola_id` preenchido, `sistema = false`) com 65 concessões seguindo a regra do modelo:
+conteúdo de turma é `TURMA` inclusive para a coordenação; `ESCOLA` só em cadastro e
+configuração. Eles **não** substituem a Fase 3b — os definitivos terão `escola_id NULL` e,
+pelo índice `NULLS NOT DISTINCT`, convivem com estes sem colidir.
 
 **2.2 — `GET /posts`** com a CTE de escopo **inline** no `PostRepository`, parametrizada por
 `@usuarioId`.
@@ -322,9 +346,15 @@ postagem. O primeiro recebe 200, o segundo 404. Enquanto a RLS não estiver liga
 esse isolamento depende exclusivamente do filtro no SQL, então ele precisa ser verificado
 endpoint a endpoint, não presumido.
 
-**Este teste ainda não pode rodar**: o banco tem um único usuário (`admin`), sem vínculo de
-turma. É o que o passo 2.1 resolve, e é por isso que ele vem antes da primeira query com
-escopo.
+O dado para esse teste já existe (passo 2.1): `bruno` deve receber 200 na postagem da Turma
+A, `carla` e `elias` devem receber 404 na mesma postagem. Rodando o recorte direto no banco,
+a divisão já é a esperada — falta a rota que o aplique.
+
+Um detalhe que o seed torna visível: o `admin` não tem vínculo de turma nenhum, então a CTE
+de escopo devolve **zero** postagens para ele. Isso está correto — ele enxerga tudo pela
+abrangência `ESCOLA`, e é o controller que decide não aplicar o filtro
+(`scopesOf(...).includes('ESCOLA') ? undefined : actor.id`). Se a listagem vier vazia para o
+administrador, o erro está nessa linha, não no SQL.
 
 ## Riscos registrados
 
