@@ -23,6 +23,8 @@ export interface Person {
   phone: string | null;
   contactEmail: string | null;
   roles: PersonRoles;
+  /** Se há foto de perfil. A imagem em si vem por `GET /people/:personId/photo`. */
+  hasPhoto: boolean;
   /** Se já existe login para esta pessoa. `usuario.pessoa_id` é UNIQUE: no máximo um. */
   hasUser: boolean;
 }

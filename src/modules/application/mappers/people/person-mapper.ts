@@ -11,6 +11,7 @@ export interface PersonOutput {
   contactEmail: string | null;
   roles: { student: boolean; guardian: boolean; teacher: boolean };
   hasUser: boolean;
+  hasPhoto: boolean;
 }
 
 export interface PersonPersistenceRow extends PaginatedRow {
@@ -25,6 +26,7 @@ export interface PersonPersistenceRow extends PaginatedRow {
   E_RESPONSAVEL: boolean;
   E_PROFESSOR: boolean;
   TEM_USUARIO: boolean;
+  TEM_FOTO: boolean;
 }
 
 export class PersonMapper {
@@ -43,6 +45,7 @@ export class PersonMapper {
         teacher: row.E_PROFESSOR,
       },
       hasUser: row.TEM_USUARIO,
+      hasPhoto: row.TEM_FOTO,
     };
   }
 

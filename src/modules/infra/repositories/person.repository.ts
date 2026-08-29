@@ -17,6 +17,7 @@ import {
   PersonPersistenceRow,
 } from '../../application/mappers/people/person-mapper.js';
 import { escolaDoAtor } from './sql/escola-do-ator.js';
+import { pessoaDoAtor } from './sql/pessoa-do-ator.js';
 import { PESSOA_NO_ESCOPO } from './sql/pessoa-escopo.js';
 
 const E_ALUNO = (alias: string): string =>
@@ -37,7 +38,8 @@ const COLUNAS = (alias: string): string => `
   ${E_ALUNO(alias)}                                 AS "E_ALUNO",
   ${E_RESPONSAVEL(alias)}                           AS "E_RESPONSAVEL",
   ${E_PROFESSOR(alias)}                             AS "E_PROFESSOR",
-  EXISTS (SELECT 1 FROM usuario us2 WHERE us2.pessoa_id = ${alias}.id) AS "TEM_USUARIO"
+  EXISTS (SELECT 1 FROM usuario us2 WHERE us2.pessoa_id = ${alias}.id) AS "TEM_USUARIO",
+  (${alias}.foto_chave IS NOT NULL)                 AS "TEM_FOTO"
 `;
 
 // `unaccent` não está instalado, então a busca por nome é ILIKE simples. Serve ao caso real
@@ -148,8 +150,33 @@ const SELECT_ID_BY_CPF = `
   WHERE p.cpf = @cpf::text AND p.escola_id = ${escolaDoAtor()};
 `;
 
+// O mesmo recorte do SELECT_BY_ID: quem pode ver a pessoa pode ver o rosto dela.
+const SELECT_PHOTO_KEY = `
+  SELECT p.foto_chave AS "FOTO_CHAVE"
+  FROM pessoa p
+  WHERE p.id = @personId::uuid
+    AND p.escola_id = ${escolaDoAtor()}
+    AND (@viewerId::uuid IS NULL OR p.id IN (${PESSOA_NO_ESCOPO}));
+`;
+
+// `ownOnly` é a abrangência PROPRIA: sem ESCOLA, a pessoa alvo tem de ser a do próprio ator.
+// A comparação salta de `usuario.id` para `pessoa.id` — ver sql/pessoa-do-ator.ts.
+const UPDATE_PHOTO_KEY = `
+  UPDATE pessoa p SET
+    foto_chave    = @key::text,
+    atualizado_em = now()
+  WHERE p.id = @personId::uuid
+    AND p.escola_id = ${escolaDoAtor()}
+    AND (@ownOnly::boolean = false OR p.id = ${pessoaDoAtor()})
+  RETURNING p.id::text AS "ID";
+`;
+
 interface IdRow {
   ID: string;
+}
+
+interface PhotoKeyRow {
+  FOTO_CHAVE: string | null;
 }
 
 export class PersonRepository implements IPersonRepository {
@@ -234,6 +261,36 @@ export class PersonRepository implements IPersonRepository {
       phoneSet: data.phone !== undefined,
       contactEmail: data.contactEmail ?? null,
       contactEmailSet: data.contactEmail !== undefined,
+    });
+
+    return rows.length > 0;
+  }
+
+  async findPhotoKey(
+    personId: string,
+    actorId: string,
+    viewerId: string | null,
+  ): Promise<string | null> {
+    const rows = await this.db.query<PhotoKeyRow>(SELECT_PHOTO_KEY, {
+      personId,
+      actorId,
+      viewerId,
+    });
+
+    return rows[0]?.FOTO_CHAVE ?? null;
+  }
+
+  async updatePhotoKey(
+    personId: string,
+    key: string | null,
+    actorId: string,
+    ownOnly: boolean,
+  ): Promise<boolean> {
+    const rows = await this.db.query<IdRow>(UPDATE_PHOTO_KEY, {
+      personId,
+      key,
+      actorId,
+      ownOnly,
     });
 
     return rows.length > 0;

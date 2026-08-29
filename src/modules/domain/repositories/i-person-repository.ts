@@ -49,4 +49,19 @@ export interface IPersonRepository {
   /** `null` quando o CPF já pertence a outra pessoa da escola. */
   create(data: CreatePersonData): Promise<string | null>;
   update(personId: string, data: UpdatePersonData): Promise<boolean>;
+
+  /** O caminho da foto no storage. `null` é pessoa fora do alcance **ou** sem foto. */
+  findPhotoKey(personId: string, actorId: string, viewerId: string | null): Promise<string | null>;
+
+  /**
+   * Grava (ou limpa, com `key` null) a foto. `false` quando a pessoa não existe na escola do
+   * ator ou quando `ownOnly` está ligado e a pessoa não é a do próprio ator — é a abrangência
+   * `PROPRIA` resolvida no SQL, onde `actor.id` (usuário) vira `pessoa.id`.
+   */
+  updatePhotoKey(
+    personId: string,
+    key: string | null,
+    actorId: string,
+    ownOnly: boolean,
+  ): Promise<boolean>;
 }

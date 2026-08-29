@@ -37,6 +37,14 @@ export enum Feature {
   PersonUpdate = 'UPDATE:PERSON',
   PersonView = 'VIEW:PERSON',
 
+  /**
+   * A foto de perfil é recurso próprio, e não parte de `PERSON`, porque a régua é outra:
+   * todo usuário troca a própria foto — inclusive o responsável, que não tem permissão de
+   * editar cadastro de pessoa.
+   */
+  PhotoUpdate = 'UPDATE:PHOTO',
+  PhotoView = 'VIEW:PHOTO',
+
   PostCreate = 'CREATE:POST',
   PostDelete = 'DELETE:POST',
   PostPublish = 'PUBLISH:POST',

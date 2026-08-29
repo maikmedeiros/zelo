@@ -17,10 +17,10 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 28/08/2026
 
-Migrations `001`–`007` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
+Migrations `001`–`008` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
 `posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
 `enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles` e `role-grants` —
-**61 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
+**64 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
 montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 `prettier --check` passam limpos.
 
@@ -31,7 +31,7 @@ montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 | 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                  |
 | 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                  |
 | 3b — Catálogo de perfis       | ✅ concluída (migration 007)              |
-| 4 — Conteúdo e interação      | ⬜                                        |
+| 4 — Conteúdo e interação      | 🔄 4.0 feita; 4.1 a 4.3 pendentes         |
 | 5 — Consentimento e relatório | ⬜                                        |
 | 6 — RLS                       | ⬜                                        |
 | 7 — CRUD de tokens de API     | ⬜ (era 1b; adiada para o fim)            |
@@ -773,10 +773,73 @@ catálogo para a escola nova.
 
 ## Fase 4 — Conteúdo e interação
 
-`midia` (upload multipart — o `multer` entra **entre** a autorização e o validator, e a
-escrita em disco fica **fora** da transação), `postagem_comentario` (remoção lógica, com
-motivo obrigatório na moderação da escola), `postagem_reacao` (trocar de reação é `UPDATE`,
-não linha nova).
+### 4.0 — Armazenamento de imagem e foto de perfil ✅
+
+**A árvore de pastas**, decidida com o cliente:
+
+```
+public/imagens/postagens/   imagens das postagens (4.1)
+public/imagens/pessoas/     foto de perfil        (feita)
+```
+
+O conteúdo não é versionado — só a estrutura, pelos `.gitkeep`. O `STORAGE_ROOT` passou de
+`./uploads` para `./public/imagens`, e o `folder` que o `LocalFileStorage.save` já recebia
+vira o nome da subpasta.
+
+**A pasta se chama `public`, mas não é servida estaticamente.** Decisão explícita: um
+`express.static` deixaria a foto de qualquer criança acessível a quem receber o link, sem
+sessão e para sempre — o oposto da tese. As imagens saem por rota autenticada
+(`GET /people/:personId/photo`), que aplica o mesmo recorte de audiência do resto do sistema.
+O nome do arquivo carrega o hash do conteúdo, mas isso é deduplicação, não segurança: o gate
+é a sessão.
+
+**A foto é da PESSOA, não do USUÁRIO.** O rosto é da pessoa, não da credencial — conta
+desativada e recriada continua sendo a mesma pessoa —, e criança é `PESSOA` sem `USUARIO`:
+pendurar no login deixaria de fora justamente quem mais aparece em foto numa escola infantil.
+A coluna `pessoa.foto_chave` guarda o caminho relativo à raiz do storage, nunca a URL, porque
+host e prefixo mudam entre ambientes e o `TODO(cdn)` vai trocar a base sem tocar no banco.
+
+**Duas capabilities novas** ([migration 008](db/migrations/008_foto_de_perfil.sql)), separadas
+de `PERSON` porque a régua é outra — **todo usuário troca a própria foto**, inclusive o
+responsável, que não tem nem deve ter permissão de editar cadastro:
+
+| Capability     | `RESPONSAVEL` | `PROFESSOR` | `COORDENACAO` | `ADMINISTRADOR` |
+| -------------- | ------------- | ----------- | ------------- | --------------- |
+| `VIEW:PHOTO`   | `TURMA`       | `TURMA`     | `ESCOLA`      | `ESCOLA`        |
+| `UPDATE:PHOTO` | `PROPRIA`     | `PROPRIA`   | `ESCOLA`      | `ESCOLA`        |
+
+`PROPRIA` compara `pessoa.id`, e o `actor.id` é `usuario.id` — chaves diferentes. O salto é
+feito no SQL, por [`sql/pessoa-do-ator.ts`](src/modules/infra/repositories/sql/pessoa-do-ator.ts),
+irmão do `escola-do-ator`. Carregar o `pessoa_id` no `Actor` resolveria também, ao custo de
+engordar a credencial com cadastro.
+
+**Três rotas:** `GET`, `PUT` e `DELETE` em `/people/:personId/photo` — 61 → 64. A imagem sobe
+como `multipart/form-data` no campo `file`.
+
+Dois defeitos achados testando, ambos corrigidos:
+
+- **Erro de multer virava 500.** O multer não lança: entrega o `MulterError` ao `next`, e o
+  handler global — que só conhece `AppError` — embrulhava em 500 o que é erro do cliente.
+  Arquivo de 11 MB e campo com nome errado respondiam "erro interno". O wrapper `singleFile`
+  traduz: **413** (`PayloadTooLargeError`, classe nova) e **400**.
+- **O `mimetype` do multer não prova nada.** Vem do cabeçalho do próprio cliente, então um
+  `.txt` renomeado chegava anunciado como `image/jpeg` — e a foto é devolvida com um
+  `Content-Type` que o navegador obedece. `sniffImageMime` lê a assinatura real dos bytes.
+  Só JPEG, PNG e WebP; SVG fica fora por ser documento com script dentro.
+
+**Verificado.** Bruno (`RESPONSAVEL`) troca a própria foto (**200**) e não a da Carla
+(**404** — não 403, para não confirmar que a pessoa existe); diana (`COORDENACAO`) troca a de
+qualquer um, inclusive a do Théo, que não tem login. No `VIEW:PHOTO`: bruno vê o filho, ana
+vê pela turma, gabriel vê o colega de turma do filho, **elias não vê ninguém** (**404**),
+fabio leva **403** e sem sessão é **401**. Arquivo que não é imagem dá **422**. As matrizes
+da Fase 2 e da Fase 3 seguem intactas.
+
+### 4.1 a 4.3 — o que falta
+
+`midia` (upload multipart em `public/imagens/postagens/`, mesma tubulação da foto),
+`postagem_comentario` (remoção lógica, com motivo obrigatório na moderação da escola),
+`postagem_reacao` (trocar de reação é `UPDATE`, não linha nova). O `TODO(midia)` do
+`publish-post` relaxa para `hasBody || temMidia` quando a 4.1 existir.
 
 ## Fase 5 — Consentimento e relatório
 
