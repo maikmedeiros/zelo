@@ -21,12 +21,11 @@ export class PublishPostUseCase {
       });
     }
 
-    // O modelo pede que postagem publicada tenha corpo OU ao menos uma mídia. Mídia é da
-    // Fase 4; até lá a única forma de satisfazer a invariante é o corpo.
-    // TODO(midia): relaxar para `hasBody || temMidia` quando o upload existir.
-    if (!ownership.hasBody) {
+    // Corpo OU ao menos uma mídia. Publicar o vazio entregaria à família uma notificação
+    // sem conteúdo nenhum — e a foto sozinha, sem legenda, é postagem legítima numa creche.
+    if (!ownership.hasBody && !ownership.hasMedia) {
       throw new UnprocessableEntityError({
-        message: 'Postagem publicada precisa ter corpo',
+        message: 'Postagem publicada precisa ter corpo ou ao menos uma mídia',
       });
     }
 

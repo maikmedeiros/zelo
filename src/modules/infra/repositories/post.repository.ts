@@ -198,6 +198,7 @@ const SELECT_OWNERSHIP = `
     p.status::text    AS "STATUS",
     p.destinatario::text AS "DESTINATARIO",
     (p.corpo IS NOT NULL AND btrim(p.corpo) <> '') AS "TEM_CORPO",
+    EXISTS (SELECT 1 FROM midia mi WHERE mi.postagem_id = p.id) AS "TEM_MIDIA",
     coalesce(
       (
         SELECT array_agg(DISTINCT t.turma_id::text)
@@ -298,6 +299,7 @@ interface OwnershipRow {
   STATUS: PostOwnership['status'];
   DESTINATARIO: PostOwnership['audience'];
   TEM_CORPO: boolean;
+  TEM_MIDIA: boolean;
   TURMAS: string[];
 }
 
@@ -360,6 +362,7 @@ export class PostRepository implements IPostRepository {
       audience: row.DESTINATARIO,
       groupIds: row.TURMAS,
       hasBody: row.TEM_CORPO,
+      hasMedia: row.TEM_MIDIA,
     };
   }
 

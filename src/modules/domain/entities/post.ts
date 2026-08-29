@@ -22,6 +22,7 @@ export interface PostOwnership {
   /** Turmas alcançadas — diretas no modo TURMA, via matrícula no modo ALUNO. */
   groupIds: string[];
   hasBody: boolean;
+  hasMedia: boolean;
 }
 
 export interface PostClass {
