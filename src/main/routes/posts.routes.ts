@@ -10,13 +10,16 @@ import {
   makeCreatePostController,
   makeDeleteCommentController,
   makeDeleteMediaController,
+  makeDeleteReactionController,
   makeDeletePostController,
   makeFindListCommentsController,
   makeFindListMediaController,
   makeFindListPostsController,
   makeFindMediaByIdController,
   makeFindPostByIdController,
+  makeFindReactionSummaryController,
   makePublishPostController,
+  makeSetReactionController,
   makeUpdatePostController,
 } from '@main/factories/posts/index.js';
 import {
@@ -30,6 +33,8 @@ import {
   mediaItemValidator,
   postMediaValidator,
   publishPostValidator,
+  reactionParamsValidator,
+  setReactionValidator,
   updatePostValidator,
 } from '@modules/presentation/validators/posts/index.js';
 
@@ -108,6 +113,30 @@ export default (router: Router): void => {
     authz.canRequest(Feature.MediaDelete),
     mediaItemValidator,
     controller(makeDeleteMediaController()),
+  );
+
+  router.get(
+    '/posts/:postId/reactions',
+    authz.canRequest(Feature.ReactionView),
+    reactionParamsValidator,
+    controller(makeFindReactionSummaryController()),
+  );
+
+  // PUT e não POST: a reação do ator é única por postagem, então definir é idempotente —
+  // trocar joinha por coração não cria recurso novo. A capability é CREATE:REACTION porque
+  // o catálogo não tem UPDATE:REACTION: o modelo trata reagir como um ato só.
+  router.put(
+    '/posts/:postId/reactions',
+    authz.canRequest(Feature.ReactionCreate),
+    setReactionValidator,
+    controller(makeSetReactionController()),
+  );
+
+  router.delete(
+    '/posts/:postId/reactions',
+    authz.canRequest(Feature.ReactionDelete),
+    reactionParamsValidator,
+    controller(makeDeleteReactionController()),
   );
 
   router.get(

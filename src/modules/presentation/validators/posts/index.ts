@@ -5,4 +5,5 @@ export * from './find-list-posts.validator.js';
 export * from './find-post-by-id.validator.js';
 export * from './media/index.js';
 export * from './publish-post.validator.js';
+export * from './reactions/index.js';
 export * from './update-post.validator.js';

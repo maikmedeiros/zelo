@@ -10,4 +10,7 @@ export * from './media/delete-media/delete-media.factory.js';
 export * from './media/find-list-media/find-list-media.factory.js';
 export * from './media/find-media-by-id/find-media-by-id.factory.js';
 export * from './publish-post/publish-post.factory.js';
+export * from './reactions/delete-reaction/delete-reaction.factory.js';
+export * from './reactions/find-reaction-summary/find-reaction-summary.factory.js';
+export * from './reactions/set-reaction/set-reaction.factory.js';
 export * from './update-post/update-post.factory.js';
