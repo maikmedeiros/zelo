@@ -170,134 +170,33 @@ INSERT INTO acesso_turma (id, usuario_id, turma_id, motivo, concedido_por, justi
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
--- PERFIS DE DEMONSTRAÇÃO
+-- CONCESSÃO DE PERFIS
 -- =============================================================================
--- Perfis de ESCOLA (`escola_id` preenchido, `sistema = false`), não perfis de sistema. A
--- Fase 3b vai criar os definitivos com `escola_id NULL`, e o índice único é
--- (escola_id, codigo) NULLS NOT DISTINCT — então os dois conjuntos convivem sem colidir e
--- estes aqui podem ser jogados fora sem tocar naqueles.
+-- Os perfis não são criados aqui: `ADMINISTRADOR`, `COORDENACAO`, `PROFESSOR` e
+-- `RESPONSAVEL` são perfis de sistema, provisionados pela migration `007` com uma cópia por
+-- escola. O seed só distribui. Perfil de sistema tem `sistema = true` e a API recusa editá-lo,
+-- então a matriz de concessões vive na migration, onde é versionada e conferida.
 --
--- As concessões seguem a regra do modelo: conteúdo de turma é abrangência TURMA para todo
--- perfil, inclusive coordenação; ESCOLA fica reservada a cadastro e configuração.
-
-INSERT INTO perfil (id, escola_id, codigo, nome, descricao, sistema) VALUES
-  ('66666666-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'PROFESSOR',   'Professor',   'Publica e modera o conteúdo das turmas em que leciona.', false),
-  ('66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'RESPONSAVEL', 'Responsável', 'Acompanha o conteúdo das turmas dos filhos.',            false),
-  ('66666666-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'COORDENACAO', 'Coordenação', 'Conteúdo por turma; cadastro e acessos por escola.',     false)
-ON CONFLICT (id) DO NOTHING;
-
-CREATE TEMP TABLE concessao_demo (perfil text, codigo text, escopo abrangencia) ON COMMIT DROP;
-
-INSERT INTO concessao_demo (perfil, codigo, escopo) VALUES
-  -- RESPONSÁVEL — lê o conteúdo da turma do filho, interage, e consente pelo filho.
-  ('RESPONSAVEL', 'VIEW:POST',           'TURMA'),
-  ('RESPONSAVEL', 'VIEW:MEDIA',          'TURMA'),
-  ('RESPONSAVEL', 'VIEW:COMMENT',        'TURMA'),
-  ('RESPONSAVEL', 'CREATE:COMMENT',      'TURMA'),
-  ('RESPONSAVEL', 'DELETE:COMMENT',      'PROPRIA'),
-  ('RESPONSAVEL', 'VIEW:REACTION',       'TURMA'),
-  ('RESPONSAVEL', 'CREATE:REACTION',     'TURMA'),
-  ('RESPONSAVEL', 'DELETE:REACTION',     'PROPRIA'),
-  ('RESPONSAVEL', 'VIEW:REACTION_TYPE',  'ESCOLA'),
-  ('RESPONSAVEL', 'VIEW:REPORT',         'TURMA'),
-  ('RESPONSAVEL', 'VIEW:STUDENT',        'TURMA'),
-  ('RESPONSAVEL', 'VIEW:CLASS',          'TURMA'),
-  ('RESPONSAVEL', 'VIEW:CONSENT',        'TURMA'),
-  ('RESPONSAVEL', 'CREATE:CONSENT',      'TURMA'),
-  ('RESPONSAVEL', 'REVOKE:CONSENT',      'TURMA'),
-
-  -- PROFESSOR — tudo do responsável, mais autoria e moderação, sempre limitado à turma.
-  ('PROFESSOR',   'VIEW:POST',           'TURMA'),
-  ('PROFESSOR',   'CREATE:POST',         'TURMA'),
-  ('PROFESSOR',   'UPDATE:POST',         'TURMA'),
-  ('PROFESSOR',   'DELETE:POST',         'TURMA'),
-  ('PROFESSOR',   'PUBLISH:POST',        'TURMA'),
-  ('PROFESSOR',   'VIEW:MEDIA',          'TURMA'),
-  ('PROFESSOR',   'CREATE:MEDIA',        'TURMA'),
-  ('PROFESSOR',   'DELETE:MEDIA',        'TURMA'),
-  ('PROFESSOR',   'VIEW:COMMENT',        'TURMA'),
-  ('PROFESSOR',   'CREATE:COMMENT',      'TURMA'),
-  ('PROFESSOR',   'DELETE:COMMENT',      'TURMA'),
-  ('PROFESSOR',   'VIEW:REACTION',       'TURMA'),
-  ('PROFESSOR',   'CREATE:REACTION',     'TURMA'),
-  ('PROFESSOR',   'DELETE:REACTION',     'PROPRIA'),
-  ('PROFESSOR',   'VIEW:REACTION_TYPE',  'ESCOLA'),
-  ('PROFESSOR',   'VIEW:REPORT',         'TURMA'),
-  ('PROFESSOR',   'CREATE:REPORT',       'TURMA'),
-  ('PROFESSOR',   'UPDATE:REPORT',       'TURMA'),
-  ('PROFESSOR',   'PUBLISH:REPORT',      'TURMA'),
-  ('PROFESSOR',   'VIEW:STUDENT',        'TURMA'),
-  ('PROFESSOR',   'VIEW:CLASS',          'TURMA'),
-  ('PROFESSOR',   'VIEW:ENROLLMENT',     'TURMA'),
-  ('PROFESSOR',   'VIEW:GUARDIAN',       'TURMA'),
-  ('PROFESSOR',   'VIEW:GUARDIAN_LINK',  'TURMA'),
-  ('PROFESSOR',   'VIEW:CONSENT',        'TURMA'),
-
-  -- COORDENAÇÃO — o mesmo conteúdo por TURMA (o cargo não abre atalho), mais o cadastro e
-  -- a gestão de acessos, que são configuração e por isso podem ser ESCOLA.
-  ('COORDENACAO', 'VIEW:POST',           'TURMA'),
-  ('COORDENACAO', 'CREATE:POST',         'TURMA'),
-  ('COORDENACAO', 'UPDATE:POST',         'TURMA'),
-  ('COORDENACAO', 'DELETE:POST',         'TURMA'),
-  ('COORDENACAO', 'PUBLISH:POST',        'TURMA'),
-  ('COORDENACAO', 'VIEW:MEDIA',          'TURMA'),
-  ('COORDENACAO', 'VIEW:COMMENT',        'TURMA'),
-  ('COORDENACAO', 'DELETE:COMMENT',      'TURMA'),
-  ('COORDENACAO', 'VIEW:REACTION',       'TURMA'),
-  ('COORDENACAO', 'VIEW:REACTION_TYPE',  'ESCOLA'),
-  ('COORDENACAO', 'VIEW:REPORT',         'TURMA'),
-  ('COORDENACAO', 'PUBLISH:REPORT',      'TURMA'),
-  ('COORDENACAO', 'VIEW:CONSENT',        'TURMA'),
-  ('COORDENACAO', 'VIEW:CLASS_ACCESS',   'ESCOLA'),
-  ('COORDENACAO', 'CREATE:CLASS_ACCESS', 'ESCOLA'),
-  ('COORDENACAO', 'REVOKE:CLASS_ACCESS', 'ESCOLA'),
-  ('COORDENACAO', 'VIEW:CLASS',          'ESCOLA'),
-  ('COORDENACAO', 'VIEW:SCHOOL_YEAR',    'ESCOLA'),
-  ('COORDENACAO', 'VIEW:PERSON',         'ESCOLA'),
-  ('COORDENACAO', 'VIEW:STUDENT',        'ESCOLA'),
-  ('COORDENACAO', 'VIEW:GUARDIAN',       'ESCOLA'),
-  ('COORDENACAO', 'VIEW:GUARDIAN_LINK',  'ESCOLA'),
-  ('COORDENACAO', 'VIEW:TEACHER',        'ESCOLA'),
-  ('COORDENACAO', 'VIEW:TEACHER_LINK',   'ESCOLA'),
-  ('COORDENACAO', 'VIEW:ENROLLMENT',     'ESCOLA');
-
--- Um JOIN silencioso descartaria capability escrita errada e o perfil nasceria mudo — o
--- 403 inexplicável que o PLANO.md lista como risco. Falhar aqui é barato; em produção não.
-DO $$
-DECLARE
-  ausentes text;
-BEGIN
-  SELECT string_agg(DISTINCT c.codigo, ', ' ORDER BY c.codigo)
-    INTO ausentes
-  FROM concessao_demo c
-  LEFT JOIN permissao p ON p.codigo = c.codigo
-  WHERE p.id IS NULL;
-
-  IF ausentes IS NOT NULL THEN
-    RAISE EXCEPTION 'Capability inexistente em PERMISSAO: %', ausentes;
-  END IF;
-END
-$$;
-
-INSERT INTO perfil_permissao (perfil_id, permissao_id, abrangencia)
-SELECT f.id, p.id, c.escopo
-FROM concessao_demo c
-INNER JOIN perfil f
-  ON f.codigo = c.perfil AND f.escola_id = '00000000-0000-0000-0000-000000000001'
-INNER JOIN permissao p ON p.codigo = c.codigo
-ON CONFLICT (perfil_id, permissao_id) DO NOTHING;
+-- O `perfil_id` vem por consulta ao código, e não por UUID fixo: a migration gera o id, e
+-- amarrar o seed a um valor literal quebraria em qualquer banco recriado.
 
 -- Elias recebe RESPONSAVEL de propósito: ele passa no `canRequest(VIEW:POST)` e mesmo assim
 -- não pode enxergar postagem nenhuma. É o que separa "faltou permissão" (403) de "o escopo
--- funcionou" (404) no teste.
-INSERT INTO usuario_perfil (id, usuario_id, perfil_id, concedido_por, data_inicio) VALUES
-  ('67777777-0000-0000-0000-000000000001', '44444444-0000-0000-0000-000000000001', '66666666-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
-  ('67777777-0000-0000-0000-000000000002', '44444444-0000-0000-0000-000000000002', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
-  ('67777777-0000-0000-0000-000000000003', '44444444-0000-0000-0000-000000000003', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
-  ('67777777-0000-0000-0000-000000000004', '44444444-0000-0000-0000-000000000004', '66666666-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
-  ('67777777-0000-0000-0000-000000000005', '44444444-0000-0000-0000-000000000005', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'),
-  ('67777777-0000-0000-0000-000000000009', '44444444-0000-0000-0000-000000000009', '66666666-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003', DATE '2026-02-02')
+-- funcionou" (404) no teste. Fábio continua sem perfil nenhum — é ele quem exercita o 403.
+INSERT INTO usuario_perfil (id, usuario_id, perfil_id, concedido_por, data_inicio)
+SELECT v.id, v.usuario_id, f.id, '00000000-0000-0000-0000-000000000003', DATE '2026-02-02'
+FROM (VALUES
+  ('67777777-0000-0000-0000-000000000001'::uuid, '44444444-0000-0000-0000-000000000001'::uuid, 'PROFESSOR'),
+  ('67777777-0000-0000-0000-000000000002'::uuid, '44444444-0000-0000-0000-000000000002'::uuid, 'RESPONSAVEL'),
+  ('67777777-0000-0000-0000-000000000003'::uuid, '44444444-0000-0000-0000-000000000003'::uuid, 'RESPONSAVEL'),
+  ('67777777-0000-0000-0000-000000000004'::uuid, '44444444-0000-0000-0000-000000000004'::uuid, 'COORDENACAO'),
+  ('67777777-0000-0000-0000-000000000005'::uuid, '44444444-0000-0000-0000-000000000005'::uuid, 'RESPONSAVEL'),
+  ('67777777-0000-0000-0000-000000000009'::uuid, '44444444-0000-0000-0000-000000000009'::uuid, 'RESPONSAVEL')
+) AS v(id, usuario_id, codigo)
+INNER JOIN perfil f
+  ON f.codigo = v.codigo AND f.escola_id = '00000000-0000-0000-0000-000000000001'
 ON CONFLICT (id) DO NOTHING;
+
 
 -- =============================================================================
 -- CONSENTIMENTO

@@ -17,7 +17,7 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 28/08/2026
 
-Migrations `001`–`006` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
+Migrations `001`–`007` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
 `posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
 `enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles` e `role-grants` —
 **61 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
@@ -30,7 +30,7 @@ montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 | 1 — Login e sessão            | ✅ concluída e verificada                 |
 | 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                  |
 | 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                  |
-| 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)               |
+| 3b — Catálogo de perfis       | ✅ concluída (migration 007)              |
 | 4 — Conteúdo e interação      | ⬜                                        |
 | 5 — Consentimento e relatório | ⬜                                        |
 | 6 — RLS                       | ⬜                                        |
@@ -719,16 +719,57 @@ criar um perfil com `DELETE:POST` — com a capability excedente nomeada no `cau
 tentar conceder a si mesmo o `ADMINISTRADOR`, e **201** ao criar um perfil apenas com o
 `VIEW:PERSON` que ele de fato tem.
 
-## Fase 3b — Catálogo de perfis de sistema
+## Fase 3b — Catálogo de perfis de sistema ✅
 
-A dívida que a 0.7 deixou aberta. Migration nova com os perfis que faltam
-(direção, professor, responsável) e as concessões em `PERFIL_PERMISSAO` seguindo a regra:
-**conteúdo de turma é `TURMA` para todo perfil**, `ESCOLA` só para cadastro e configuração.
+A dívida que a 0.7 deixou aberta, quitada pela
+[migration 007](db/migrations/007_perfis_de_sistema.sql). Até aqui o banco tinha **um** perfil,
+o `ADMINISTRADOR` da `004`, que recebe as 69 capabilities em `ESCOLA` e por construção
+**contorna** o isolamento por turma. Todo o resto do modelo — as três abrangências, o recorte
+por turma, a guarda de escalada — não tinha um perfil real que o exercitasse.
 
-Fica depois da Fase 3 porque perfil tem `escola_id`, e a decisão de o perfil de sistema ser
-por escola ou global (`escola_id NULL`) só fecha quando o cadastro de escola existir — o
-`ADMINISTRADOR` da `004` foi criado preso à escola padrão, e isso precisa ser revisto ou
-assumido.
+**Uma cópia por escola, e não um catálogo global.** A `001` reservava `escola_id NULL` para o
+perfil de sistema (é o motivo do `NULLS NOT DISTINCT` em `uq_perfil_codigo`). A decisão foi a
+outra: cada escola recebe a sua cópia, com `escola_id` preenchido. O motivo é a Fase 6 — as
+políticas de RLS são todas ancoradas em `escola_id`, e uma linha que não pertence a escola
+nenhuma vira caso especial em cada política. Cópia por escola mantém o modelo uniforme: toda
+linha tem dono. `escola_id NULL` fica sem uso, e o índice continua correto.
+
+As quatro são `sistema = true` — provisionadas por migration e **não editáveis pela API**, que
+é o que faz `PROFESSOR` significar a mesma coisa em toda escola. A escola que precisar de
+outra combinação cria um perfil próprio pelo `POST /roles`, já sujeito ao
+`assert-no-escalation`.
+
+| Perfil          | Concessões | Regra                                                    |
+| --------------- | ---------- | -------------------------------------------------------- |
+| `ADMINISTRADOR` | 69         | tudo em `ESCOLA` — não use para demonstrar o isolamento  |
+| `COORDENACAO`   | 61         | conteúdo em `TURMA`; cadastro e acessos em `ESCOLA`      |
+| `PROFESSOR`     | 25         | `TURMA` em tudo, sem uma linha `ESCOLA` fora do catálogo |
+| `RESPONSAVEL`   | 15         | lê a turma do filho, comenta, reage e consente           |
+
+O `RESPONSAVEL` **não tem `CREATE:POST`**, e isso é decisão de produto: a ferramenta é de
+comunicação da escola para a família, e a família responde por comentário. O que a
+`COORDENACAO` não recebe, também de propósito: `CREATE:ROLE` e `UPDATE:ROLE` (desenhar perfil
+é configurar o próprio modelo de autorização), `UPDATE:SCHOOL`, `DELETE:USER` e
+`DELETE:STUDENT` — criança que sai da escola é `REVOKE:ENROLLMENT`, não exclusão de gente.
+
+A migration é **idempotente e autoritativa**: o `DO UPDATE` adota perfil que já exista com o
+mesmo código — foi assim que os perfis comuns do `demo.sql` viraram os de sistema sem refazer
+uma linha de `usuario_perfil` — e o `DELETE` final remove concessão que tenha saído do
+catálogo. O `demo.sql` deixou de criar perfil: agora só distribui, e busca o `perfil_id` pelo
+código, porque o id passou a ser gerado pela migration.
+
+**Verificado.** As duas matrizes da Fase 2 e da Fase 3 reproduzem intactas — postagens
+`admin 5 / ana 4 / diana 4 / bruno 4 / gabriel 2 / carla 3 / elias 0 / fabio 403`, alunos
+`admin 3 / diana 3 / ana 2 / bruno 1 / gabriel 1 / carla 1 / elias 0 / fabio 403`. A
+`COORDENACAO` (diana) passou a criar pessoa, ano letivo e turma (**201**), e continua barrada
+em `POST /roles` (**403**); o `PATCH` num perfil de sistema dá **403** mesmo para o
+administrador; a `PROFESSOR` (ana) segue com **403** em todo cadastro; e diana concede
+`COORDENACAO` (**201**) mas não `ADMINISTRADOR` (**403**, pelo `assert-no-escalation`). O
+caminho de banco novo foi testado num banco descartável: as sete migrations mais o seed
+produzem exatamente o mesmo estado do banco que já existia.
+
+**TODO(escola):** quando `POST /schools` existir, o cadastro de escola tem de replicar este
+catálogo para a escola nova.
 
 ## Fase 4 — Conteúdo e interação
 
