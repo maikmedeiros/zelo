@@ -37,6 +37,14 @@ export interface PostStudent {
   className: string | null;
 }
 
+/** A imagem, como o feed a enxerga. Os bytes vêm por `GET /posts/:postId/media/:mediaId`. */
+export interface PostMedia {
+  id: string;
+  mimeType: string;
+  sizeBytes: number;
+  order: number;
+}
+
 export interface Post {
   id: string;
   audience: PostAudience;
@@ -52,4 +60,9 @@ export interface Post {
   referenceDate: string;
   /** `null` enquanto RASCUNHO — o modelo só exige a data na transição para PUBLICADA. */
   publishedAt: Date | null;
+  /**
+   * A galeria, embutida para o feed não precisar de uma chamada por postagem. Vem sem o
+   * `postId` de cada item, que seria repetir o da postagem que a contém.
+   */
+  media: PostMedia[];
 }

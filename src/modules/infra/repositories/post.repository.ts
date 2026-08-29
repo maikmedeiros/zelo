@@ -70,6 +70,22 @@ const ALUNOS_DA_POSTAGEM = (alias: string, autor: string): string => `
     AND (${autor} = @viewerId::uuid OR (${alunoVisivelParaAtor('pa.aluno_id')}))
 `;
 
+// A galeria embutida no próprio SELECT. Sem isto o cliente faria uma chamada por postagem
+// para montar um feed com miniaturas — o N+1 clássico. Não há recorte próprio a aplicar: se
+// a postagem chegou até aqui, ela já passou pelo filtro de audiência.
+const MIDIAS_DA_POSTAGEM = (alias: string): string => `
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'ID', mi.id::text,
+             'MIME', mi.mime,
+             'BYTES', mi.bytes,
+             'ORDEM', mi.ordem
+           ) ORDER BY mi.ordem, mi.criado_em
+         )
+  FROM midia mi
+  WHERE mi.postagem_id = ${alias}
+`;
+
 const COLUNAS_DO_ITEM = (alias: string): string => `
   ${alias}.id::text                       AS "ID",
   ${alias}.destinatario::text             AS "DESTINATARIO",
@@ -81,7 +97,8 @@ const COLUNAS_DO_ITEM = (alias: string): string => `
   ${alias}.titulo                         AS "TITULO",
   ${alias}.corpo                          AS "CORPO",
   to_char(${alias}.referente_a, 'YYYY-MM-DD') AS "REFERENTE_A",
-  ${alias}.publicado_em                   AS "PUBLICADO_EM"
+  ${alias}.publicado_em                   AS "PUBLICADO_EM",
+  (${MIDIAS_DA_POSTAGEM(`${alias}.id`)})  AS "MIDIAS"
 `;
 
 // A contagem sai da CTE já filtrada: count(*) OVER () roda depois do WHERE e antes do

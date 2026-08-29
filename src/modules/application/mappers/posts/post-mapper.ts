@@ -4,6 +4,7 @@ import {
   Post,
   PostAudience,
   PostClass,
+  PostMedia,
   PostStudent,
   PostType,
 } from '../../../domain/entities/post.js';
@@ -11,6 +12,13 @@ import {
 interface ClassRow {
   ID: string;
   NOME: string;
+}
+
+interface MediaRow {
+  ID: string;
+  MIME: string;
+  BYTES: string;
+  ORDEM: number;
 }
 
 interface StudentRow {
@@ -32,6 +40,7 @@ export interface PostOutput {
   body: string | null;
   referenceDate: string;
   publishedAt: string | null;
+  media: PostMedia[];
 }
 
 export interface PostPersistenceRow extends PaginatedRow {
@@ -46,9 +55,19 @@ export interface PostPersistenceRow extends PaginatedRow {
   CORPO: string | null;
   REFERENTE_A: string;
   PUBLICADO_EM: Date | null;
+  MIDIAS: MediaRow[] | null;
 }
 
 const toClass = (row: ClassRow): PostClass => ({ id: row.ID, name: row.NOME });
+
+const toMedia = (row: MediaRow): PostMedia => ({
+  id: row.ID,
+  mimeType: row.MIME,
+  // `bigint` chega como string — o driver não converte int8, que não cabe em `number` com
+  // segurança. Aqui cabe: imagem não passa de alguns megabytes.
+  sizeBytes: Number(row.BYTES),
+  order: row.ORDEM,
+});
 
 const toStudent = (row: StudentRow): PostStudent => ({
   id: row.ID,
@@ -71,6 +90,7 @@ export class PostMapper {
       body: row.CORPO,
       referenceDate: row.REFERENTE_A,
       publishedAt: row.PUBLICADO_EM,
+      media: (row.MIDIAS ?? []).map(toMedia),
     };
   }
 
