@@ -1,11 +1,5 @@
 import { Post, PostAudience, PostOwnership, PostStatus, PostType } from '../entities/post.js';
-
-export interface PageInfo {
-  page: number;
-  limit: number;
-  totalResults: number;
-  totalPages: number;
-}
+import { PageInfo } from './pagination.js';
 
 export interface ListPostsFilters {
   page: number;
