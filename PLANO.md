@@ -17,10 +17,11 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 28/08/2026
 
-Migrations `001`–`009` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
+Migrations `001`–`009` aplicadas. `src/modules/` cobre **dezesseis** recursos: `sessions`,
 `posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
-`enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles` e `role-grants` —
-**64 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
+`enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles`, `role-grants` e
+`reaction-types` —
+**75 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
 montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 `prettier --check` passam limpos.
 
@@ -31,7 +32,7 @@ montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 | 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                  |
 | 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                  |
 | 3b — Catálogo de perfis       | ✅ concluída (migration 007)              |
-| 4 — Conteúdo e interação      | 🔄 4.0 feita; 4.1 a 4.3 pendentes         |
+| 4 — Conteúdo e interação      | ✅ concluída (4.0 a 4.3)                  |
 | 5 — Consentimento e relatório | ⬜                                        |
 | 6 — RLS                       | ⬜                                        |
 | 7 — CRUD de tokens de API     | ⬜ (era 1b; adiada para o fim)            |
@@ -869,12 +870,86 @@ No `VIEW:PHOTO`: bruno vê o filho, ana vê pela turma, gabriel vê o colega de 
 acima do limite dá **413**, campo `file` ausente dá **400**. As matrizes da Fase 2 e da Fase 3
 seguem intactas.
 
-### 4.1 a 4.3 — o que falta
+### 4.1 — `midia` ✅
 
-`midia` (upload multipart em `public/imagens/postagens/`, mesma tubulação da foto),
-`postagem_comentario` (remoção lógica, com motivo obrigatório na moderação da escola),
-`postagem_reacao` (trocar de reação é `UPDATE`, não linha nova). O `TODO(midia)` do
-`publish-post` relaxa para `hasBody || temMidia` quando a 4.1 existir.
+Quatro rotas aninhadas na postagem: `GET` e `POST` em `/posts/:postId/media`, `GET` e
+`DELETE` em `/posts/:postId/media/:mediaId`. **Sem migration** — a tabela existe desde a `001`
+e as capabilities desde a `007`.
+
+**A mídia não tem recorte próprio: herda o da postagem.** Os dois caminhos de
+[`media-access.ts`](src/modules/application/use-cases/posts/media/media-access.ts) são
+diferentes de propósito — **leitura** passa pelo `findById`, que aplica a audiência inteira;
+**escrita** passa pelo `findOwnership` + guard, a mesma checagem de dono do `update` da
+postagem. Usar o recorte de leitura para autorizar escrita deixaria qualquer responsável
+anexar foto à postagem que ele apenas recebeu.
+
+Anexar só em **rascunho** (**409** depois de publicada): entregar conteúdo novo a quem já foi
+notificado e já leu, sem aviso, é o mesmo problema que já barrava a troca de audiência. A
+`ordem` sai de `max + 1` na própria inserção — calcular na aplicação exigiria ler antes de
+escrever, e duas fotos subindo juntas receberiam o mesmo número.
+
+Fecha o `TODO(midia)`: publicar agora exige **corpo OU ao menos uma mídia**. A foto sozinha,
+sem legenda, é postagem legítima numa creche; e texto e foto convivem na mesma postagem, que
+é o caso comum.
+
+### 4.2 — `postagem_comentario` ✅
+
+`GET` e `POST` em `/posts/:postId/comments`, `DELETE` em `.../comments/:commentId`.
+
+**É aqui que a via de mão dupla aparece.** O `RESPONSAVEL` tem `CREATE:COMMENT` e não tem
+`CREATE:POST`: a escola publica, a família responde. Por isso comentar exige alcançar a
+postagem como **leitor** — o `findById` —, e não o guard de dono que a mídia usa.
+
+Remoção é lógica e tem duas naturezas. O autor apagando o próprio grava
+`REMOVIDO_PELO_AUTOR`, sem motivo — ele não deve satisfação. Quem não é autor só passou no
+guard por `TURMA` ou `ESCOLA`, e isso é moderação: grava `REMOVIDO_PELA_ESCOLA` com **motivo
+obrigatório** (**422** sem ele). A distinção importa para quem lê a lápide: "retirei o que eu
+disse" não é a mesma coisa que "a escola retirou o que você disse".
+
+**O corpo do comentário removido não sai do banco** — o `CASE` está no `SELECT`, não na
+aplicação, então o texto nem chega ao processo. A linha fica, porque apagá-la destruiria a
+prova de que a moderação aconteceu. E o `status = 'PUBLICADO'` no `WHERE` do `UPDATE` impede
+reescrever o motivo de uma moderação já registrada.
+
+### 4.3 — `postagem_reacao` ✅
+
+`GET`, `PUT` e `DELETE` em `/posts/:postId/reactions`, mais `GET /reaction-types`.
+
+`PUT` e não `POST`: a reação do ator é única por postagem, então definir é idempotente —
+trocar joinha por coração é `UPDATE` da linha, garantido por `uq_reacao_por_usuario`. A
+capability é `CREATE:REACTION` porque o catálogo não tem `UPDATE:REACTION`; o modelo trata
+reagir como um ato só.
+
+O `GET` devolve **resumo, não lista**: contagem por tipo e qual é a minha. Devolver quem
+reagiu com o quê entregaria a cada família o comportamento das outras dentro da turma, e
+ninguém precisa disso para desenhar a barra de emojis. A contagem sai de `GROUP BY` — não há
+coluna de contador, que divergiria.
+
+O upsert é `INSERT ... SELECT` com o código na subconsulta: código fora do catálogo produz
+zero linhas na origem e o `RETURNING` vem vazio, que o use-case traduz em **422** com a lista
+do que é aceito. Com `VALUES` e subconsulta escalar, o `reacao_id` viria `NULL` e o erro seria
+de constraint — 500 em vez do 422 que o caso merece.
+
+### Verificação da Fase 4
+
+**Mídia.** Ana cria rascunho sem corpo → publicar dá **422**; anexa a foto → publicar dá
+**200**. A galeria: ana, diana, bruno e gabriel enxergam (**200**), carla e elias **404**,
+fabio **403**. Bruno baixa os bytes (**200**, `image/png`), carla **404**. Responsável
+anexando dá **403** (não tem `CREATE:MEDIA`); em postagem publicada, **409**; arquivo que não
+é imagem, **422**. `mediaId` de outra postagem, **404**.
+
+**Comentários.** Bruno e gabriel comentam (**201**); carla e elias, **404**; no rascunho da
+própria autora, **422**. Corpo vazio e chave desconhecida, **400**. Bruno tentando remover o
+comentário do gabriel dá **404**; ana sem motivo, **422**; com motivo, **204**; de novo,
+**404**. Bruno remove o próprio sem corpo nenhum, **204**. Na listagem os dois viram lápide:
+`body` `null`, status distinto, e o motivo só no que a escola retirou.
+
+**Reações.** Bruno reage, troca de joinha para coração — uma linha só no banco, não duas.
+Código inexistente dá **422** listando os aceitos; carla, **404**. O resumo mostra `mine` de
+cada um e a contagem compartilhada. Remover devolve **204**, e de novo **404**.
+
+As matrizes da Fase 2 e da Fase 3 seguem intactas, e os dados de teste foram removidos do
+banco e do disco.
 
 ## Fase 5 — Consentimento e relatório
 
