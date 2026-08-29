@@ -17,16 +17,19 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 28/08/2026
 
-Migrations `001`–`005` aplicadas. `src/modules/` tem **um** recurso: `sessions`. O
-`injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas montadas antes
-dele. `npm run build`, `lint:eslint:check` e `lint:security` passam limpos.
+Migrations `001`–`006` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
+`posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
+`enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles` e `role-grants` —
+**61 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
+montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
+`prettier --check` passam limpos.
 
 | Fase                          | Estado                                    |
 | ----------------------------- | ----------------------------------------- |
 | 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2) |
 | 1 — Login e sessão            | ✅ concluída e verificada                 |
 | 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                  |
-| 3 — Cadastros                 | ⬜                                        |
+| 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                  |
 | 3b — Catálogo de perfis       | ⬜ (dívida aberta pela 0.7)               |
 | 4 — Conteúdo e interação      | ⬜                                        |
 | 5 — Consentimento e relatório | ⬜                                        |
@@ -158,11 +161,21 @@ método, caminho, status, ator e duração — e o `DELETE /sessions/current` n�
 caminhos excluídos (`/status`, `/health`, `/metrics`). O registro do encerramento acontece
 pelo log genérico; o Mongo neste projeto é só log, e não precisa de escrita dedicada.
 
-**Documentação:** a coleção `Zelo` no Postman cobre as três rotas com os valores do
-administrador de bootstrap, mais o `/metrics`. Um detalhe que custou tempo e vale lembrar:
-como o Bearer tem precedência sobre o cookie, um header `Authorization` presente e vazio
-derruba a autenticação mesmo com cookie válido — e um header `Cookie` explícito sobrepõe o
-cookie jar do cliente.
+**Documentação:** a coleção `Zelo` no Postman cobre **as 61 rotas em 16 pastas**, com corpo
+de exemplo em toda escrita e query de exemplo (desabilitada) em toda listagem. Um detalhe que
+custou tempo e vale lembrar: como o Bearer tem precedência sobre o cookie, um header
+`Authorization` presente e vazio derruba a autenticação mesmo com cookie válido — e um header
+`Cookie` explícito sobrepõe o cookie jar do cliente.
+
+**Convenção da coleção:** cada segmento **estático** da URL vira uma pasta; o parâmetro não
+vira. `POST /posts/:postId/publication` mora em `Posts › publication`.
+
+**Armadilha do MCP do Postman:** não existe ferramenta de criar pasta — só o `putCollection`,
+que **apaga a descrição da coleção e as descrições, scripts e exemplos de todo item**. O
+caminho que funciona é: `putCollection` uma vez para criar o esqueleto de pastas (guardando
+os ids existentes), restaurar os itens danificados com `updateCollectionRequest`, e daí em
+diante criar tudo com `createCollectionRequest`, que aceita `description`, `events` e
+`queryParams` com `enabled: false`.
 
 ## Fase 2 — Primeira fatia vertical: postagens
 
@@ -437,16 +450,274 @@ Matriz de audiência intacta depois de tudo: 5 / 4 / 4 / 4 / 2 / 3.
 
 ## Fase 3 — Cadastros, em ordem de dependência
 
-`escola` → `ano_letivo` → `turma` → `pessoa` → `usuario` → `aluno`/`responsavel`/`professor`
-→ `matricula` → vínculos (`responsavel_aluno`, `professor_turma`, `acesso_turma`) →
+`ano_letivo` → `turma` → `pessoa` → `usuario` → `aluno`/`responsavel`/`professor` →
+`matricula` → vínculos (`responsavel_aluno`, `professor_turma`, `acesso_turma`) →
 `perfil`/`usuario_perfil`.
 
-**Decisão de desenho a tomar aqui:** `PESSOA` é a entidade base e `ALUNO`/`RESPONSAVEL`/
-`PROFESSOR` são papéis 0..1 sobre ela. `POST /students` deve aceitar os dados da pessoa e
-criar as duas linhas numa transação — obrigar o cliente a orquestrar duas chamadas é
-convite a pessoa órfã. Mas precisa aceitar também um `personId` existente, porque é
-exatamente assim que a professora que também é mãe ganha o segundo papel sem virar duas
-pessoas.
+**Sem `POST /schools`.** O sistema roda com **uma** escola por enquanto, a que a `004`
+provisiona. Nenhuma rota recebe `schoolId`: a escola sai do **ator**, pelo caminho
+`usuario → pessoa → escola_id`, dentro do próprio SQL. Quando a segunda escola existir, o
+recorte já está no lugar — o que falta é a rota de cadastro, não a regra.
+
+**Pessoa e papel são duas chamadas, nesta ordem.** `POST /people` cria a pessoa; depois
+`POST /students`, `POST /guardians` ou `POST /teachers` recebe o `personId` e cria **só** a
+linha do papel. É assim que a professora que também é mãe ganha o segundo papel sem virar
+duas pessoas — e é o índice `uq_pessoa_cpf` que impede o operador de cadastrá-la de novo.
+
+A alternativa (aceitar os dados da pessoa junto com o papel, numa transação) foi
+**descartada**: ela empurra o operador para "cadastrar de novo" sempre que a busca falha, e
+o resultado é pessoa duplicada — login pendurado numa linha, vínculo do filho na outra, sem
+erro nenhum, e o consentimento de LGPD apontando para a errada. O fluxo de duas etapas troca
+essa falha silenciosa por uma visível e barata: uma pessoa sem papel, sem FK apontando para
+ela, resolvida por varredura quando incomodar.
+
+Duas consequências que o fluxo exige:
+
+- **CPF obrigatório no papel adulto.** `POST /people` mantém o CPF opcional — criança sem
+  CPF é a regra, não a exceção, e a `001` diz isso no comentário do índice. Mas
+  `POST /guardians` e `POST /teachers` recusam pessoa sem CPF: no PostgreSQL `NULL` não
+  colide com `NULL`, então sem CPF preenchido o índice único **não protege nada**. Exigir o
+  CPF onde a duplicata dói é o que faz a garantia existir de fato.
+- **Busca de pessoa antes do cadastro.** `GET /people?cpf=` / `?search=`, senão não há como
+  achar a Ana que já existe, e o caminho prático vira criar outra.
+
+**Ordem interna:**
+
+**3.1 — `ano_letivo` e `turma`.** Os dois recursos que tudo o mais referencia. Sem eles não
+há matrícula nem vínculo, e o seed é a única fonte de turma no banco.
+
+**3.2 — `pessoa`**, com a busca. **3.3 — `usuario`** (a senha vem no corpo, decisão do
+cliente — o servidor só aplica o argon2id). **3.4 — os papéis** `aluno`, `responsavel`,
+`professor`. **3.5 — `matricula` e os vínculos.** **3.6 — `perfil` e `usuario_perfil`.**
+
+### 3.1 — `ano_letivo` e `turma` ✅
+
+| Rota                                 | Feature              |
+| ------------------------------------ | -------------------- |
+| `GET /school-years`                  | `VIEW:SCHOOL_YEAR`   |
+| `GET /school-years/:schoolYearId`    | `VIEW:SCHOOL_YEAR`   |
+| `POST /school-years`                 | `CREATE:SCHOOL_YEAR` |
+| `PATCH /school-years/:schoolYearId`  | `UPDATE:SCHOOL_YEAR` |
+| `DELETE /school-years/:schoolYearId` | `DELETE:SCHOOL_YEAR` |
+| `GET /classes`                       | `VIEW:CLASS`         |
+| `GET /classes/:classId`              | `VIEW:CLASS`         |
+| `POST /classes`                      | `CREATE:CLASS`       |
+| `PATCH /classes/:classId`            | `UPDATE:CLASS`       |
+| `DELETE /classes/:classId`           | `DELETE:CLASS`       |
+
+Decisões tomadas aqui, que valem para o resto da Fase 3:
+
+- **A escola sai do ator, no SQL.** `escolaDoAtor()` em
+  [sql/escola-do-ator.ts](src/modules/infra/repositories/sql/escola-do-ator.ts) é a
+  subconsulta única; nenhum corpo de requisição carrega `schoolId`.
+- **Conflito de índice único vira 409, não 500.** `INSERT ... ON CONFLICT DO NOTHING
+RETURNING id` devolve recordset vazio, o repositório devolve `null` e o use-case lança
+  `ConflictError`. Nada de `try/catch` em cima do erro do driver.
+- **`UPDATE` guardado por `NOT EXISTS`.** O `ON CONFLICT` não existe para `UPDATE`, então a
+  colisão com o irmão vira uma condição no `WHERE`. Como o use-case já leu o recurso antes
+  (404), zero linhas depois disso só pode ser conflito.
+- **`DELETE` é físico e guardado.** `ano_letivo` e `turma` são referenciados com
+  `ON DELETE RESTRICT` — a FK barraria com 500. O `NOT EXISTS` no `WHERE` transforma isso em
+  **409** dizendo o que trava. Cadastro não tem remoção lógica: quem foi usado não sai, quem
+  não foi é erro de digitação.
+- **`GET /classes` é recortado pela abrangência**, com as três origens
+  (`TURMA_NO_ESCOPO`) — o responsável enxerga a turma do filho pelo nome, e o professor as
+  dele. `VIEW:CLASS` com `ESCOLA` dispensa o recorte. Turma fora do escopo devolve **404**
+  no item e some da lista, nunca 403.
+- **Datas em `to_char(..., 'YYYY-MM-DD')`**, pelo mesmo motivo da 2.2: o driver converteria
+  `date` para `Date` na meia-noite local e o dia mudaria conforme o fuso.
+- **Contagens no payload** (`classCount` no ano letivo, `studentCount` na turma) existem
+  para o front explicar o 409 antes de tentar apagar.
+
+### 3.2 — `pessoa`, com a busca ✅
+
+| Rota                      | Feature         |
+| ------------------------- | --------------- |
+| `GET /people`             | `VIEW:PERSON`   |
+| `GET /people/:personId`   | `VIEW:PERSON`   |
+| `POST /people`            | `CREATE:PERSON` |
+| `PATCH /people/:personId` | `UPDATE:PERSON` |
+
+**Sem `DELETE`** — nem a capability existe. Pessoa é referenciada por matrícula, consentimento
+e autoria de postagem; apagar levaria o histórico junto.
+
+- **CPF validado por dígito verificador** ([shared/utils/cpf](src/shared/utils/cpf/index.ts)),
+  aceito com ou sem máscara e gravado só com dígitos. A validação não é capricho: o CPF é o
+  que faz o `uq_pessoa_cpf` proteger, e um dígito trocado passa pelo índice e cria a segunda
+  Ana do mesmo jeito.
+- **O 409 devolve o `personId` de quem já tem o CPF.** Dizer só "já existe" deixaria o
+  operador procurando — que é exatamente o atrito que empurra para o "cadastro de novo".
+- **`?role=none`** encontra as pessoas que ficaram sem papel: é a varredura da linha órfã que
+  o fluxo de duas etapas admite deixar para trás.
+- **O nome é normalizado na entrada** (`formatPersonName` no schema), então o `PATCH` faz
+  round-trip e o que sai é o que está gravado.
+- **`PESSOA_NO_ESCOPO`** ([sql/pessoa-escopo.ts](src/modules/infra/repositories/sql/pessoa-escopo.ts))
+  recorta a listagem para quem não tem `ESCOLA`. Hoje só a coordenação recebe `VIEW:PERSON`, e
+  com `ESCOLA` — então o recorte não tem consumidor. Ele existe assim mesmo porque a
+  alternativa não é "sem filtro por ora": é a escola inteira vazando no instante em que a
+  Fase 3b conceder `VIEW:PERSON` com `TURMA`.
+- **O CPF sai inteiro no payload.** Mascarar inviabilizaria a única coisa que a busca serve
+  para fazer — confirmar que esta Ana é aquela Ana. Quem enxerga já precisou de
+  `VIEW:PERSON`, que é capability de secretaria.
+
+### 3.3 — `usuario` ✅
+
+| Rota                    | Feature       |
+| ----------------------- | ------------- |
+| `GET /users`            | `VIEW:USER`   |
+| `GET /users/:userId`    | `VIEW:USER`   |
+| `POST /users`           | `CREATE:USER` |
+| `PATCH /users/:userId`  | `UPDATE:USER` |
+| `DELETE /users/:userId` | `DELETE:USER` |
+
+- **A senha vem no corpo** (decisão do cliente) e só o argon2id chega ao repositório.
+- **`DELETE` desativa, não apaga.** `postagem.autor_id`, `consentimento.registrado_por` e
+  `acesso_turma.concedido_por` referenciam `usuario` com `ON DELETE RESTRICT`. A desativação
+  encerra as sessões e revoga os tokens, que é o efeito prático de "tirar o acesso";
+  `PATCH { active: true }` reativa.
+- **Trocar a senha derruba a sessão aberta**, na mesma transação. Mudar a credencial e deixar
+  de pé a sessão que usava a antiga não muda nada para quem já estava dentro.
+- **Não dá para desativar o próprio usuário** (422): é o jeito mais fácil de o operador se
+  trancar do lado de fora.
+- **Dois índices únicos, dois 409 diferentes.** "Esta pessoa já tem login" e "este e-mail é de
+  outra pessoa" pedem correções opostas, então o use-case consulta qual deles recusou.
+- Os métodos de cadastro moram no **mesmo** `UserRepository` do login: é o mesmo agregado, como
+  manda o [CLAUDE.md](CLAUDE.md) §2. O que muda é a pergunta, e por isso o read model é outro
+  (`UserAccount`, ao lado de `UserCredentials` e `AuthenticatedUser`).
+
+### 3.4 — Os papéis: `aluno`, `responsavel`, `professor` ✅
+
+| Rota | Feature               |
+| ---- | --------------------- |
+| `GET | POST /students`       | `VIEW                 | CREATE:STUDENT`  |
+| `GET | PATCH                 | DELETE /students/:id` | `VIEW            | UPDATE | DELETE:STUDENT` |
+| `GET | POST /guardians`      | `VIEW                 | CREATE:GUARDIAN` |
+| `GET | PATCH /guardians/:id` | `VIEW                 | UPDATE:GUARDIAN` |
+| `GET | POST /teachers`       | `VIEW                 | CREATE:TEACHER`  |
+| `GET | PATCH /teachers/:id`  | `VIEW                 | UPDATE:TEACHER`  |
+
+Cada `POST` recebe **só** `personId` mais o que é do papel. Nome, CPF e contato são da pessoa
+e mudam por `PATCH /people/:personId` — o papel não duplica o cadastro.
+
+- **CPF obrigatório em `POST /guardians` e `POST /teachers`**
+  ([assert-person-has-cpf.ts](src/modules/application/use-cases/people/assert-person-has-cpf.ts)),
+  **não** em `POST /students`: criança sem CPF é a regra, e a duplicata de aluno já é barrada
+  pelo `UNIQUE` de `pessoa_id`. A exigência vive onde a duplicata custa caro.
+- **O recorte de `GET /students` é `alunoVisivelParaAtor`** — o mesmo da postagem individual, e
+  pelo mesmo motivo: o responsável alcança a criança **pelo vínculo com ela**, a equipe **pela
+  turma onde ela está matriculada**. Um ramo único por turma faria o pai de uma criança listar
+  as outras da sala.
+- **O responsável entra no escopo pela criança** (um salto além de `alunoVisivelParaAtor`) e o
+  **professor pela turma** (`TURMA_NO_ESCOPO`, as três origens — saber o nome de quem cuida do
+  filho é o que o responsável precisa e não expõe criança nenhuma).
+- **`DELETE /students/:id` só desfaz o erro recém-cometido**: criança com matrícula, vínculo ou
+  citação em postagem devolve 409 e sai por `PATCH { active: false }`. Responsável e professor
+  não têm `DELETE` nem capability para ela.
+
+**Verificação executada** contra `localhost:3003`, com as sete personas. O caso que o cliente
+descreveu, ponta a ponta: cadastrar a Ana uma segunda vez devolve **409** com o `personId` dela;
+dar-lhe `POST /guardians` com aquele id devolve **201**; e a busca passa a mostrar a mesma
+pessoa com `{teacher: true, guardian: true}` — uma linha em `professor` e uma em `responsavel`.
+
+Recorte de `GET /students`, que é a prova da propriedade central do projeto:
+
+| Ator      | Vínculo                   | Vê                  |
+| --------- | ------------------------- | ------------------- |
+| `admin`   | abrangência ESCOLA        | Théo, Lívia, Helena |
+| `diana`   | `VIEW:STUDENT` com ESCOLA | Théo, Lívia, Helena |
+| `ana`     | `PROFESSOR_TURMA` (A)     | Théo, Helena        |
+| `bruno`   | pai do Théo (turma A)     | **só Théo**         |
+| `gabriel` | pai da Helena (turma A)   | **só Helena**       |
+| `carla`   | mãe da Lívia (turma B)    | só Lívia            |
+| `elias`   | nenhum                    | nada                |
+| `fabio`   | sem perfil                | 403                 |
+
+`bruno` e `gabriel` são pais de crianças da **mesma turma** e não enxergam o filho um do outro.
+
+### 3.5 — Matrícula e vínculos ✅
+
+| Rota                                      | Feature                          |
+| ----------------------------------------- | -------------------------------- |
+| `GET \| POST /enrollments`                | `VIEW \| CREATE:ENROLLMENT`      |
+| `DELETE /enrollments/:enrollmentId`       | `REVOKE:ENROLLMENT`              |
+| `GET \| POST /guardian-links`             | `VIEW \| CREATE:GUARDIAN_LINK`   |
+| `PATCH \| DELETE /guardian-links/:linkId` | `UPDATE \| REVOKE:GUARDIAN_LINK` |
+| `GET \| POST /teacher-links`              | `VIEW \| CREATE:TEACHER_LINK`    |
+| `DELETE /teacher-links/:linkId`           | `REVOKE:TEACHER_LINK`            |
+| `GET \| POST /class-accesses`             | `VIEW \| CREATE:CLASS_ACCESS`    |
+| `DELETE /class-accesses/:accessId`        | `REVOKE:CLASS_ACCESS`            |
+
+**O `DELETE` encerra, não apaga** — por isso a capability é `REVOKE`. A matrícula passada
+explica a presença da criança no feed do ano anterior; o vínculo de responsável encerrado
+ainda sustenta o consentimento que ele assinou; o acesso a turma encerrado é a trilha de
+auditoria de quem viu o quê e a mando de quem.
+
+- **Os índices únicos são PARCIAIS** (`WHERE data_fim IS NULL`): rematricular numa turma de
+  onde o aluno saiu é legítimo e passa; vínculo **vigente** duplicado é 409.
+- **`concedido_por` sai do ator**, nunca do corpo — em `class-accesses` e em `role-grants`.
+  Mandar `grantedBy` no corpo é `400 unrecognized_keys`.
+- **`canConsent` nasce `false`.** Assinar consentimento de LGPD por uma criança não é
+  consequência automática de ser responsável por ela; é decisão explícita, por `PATCH`.
+- Cada `POST` confere os dois lados do vínculo antes de inserir, para que o recordset vazio
+  do `ON CONFLICT DO NOTHING` tenha uma causa só: a duplicata vigente.
+
+#### Defeito encontrado e corrigido: `data_fim` inclusiva
+
+Revogar devolvia **204 e não revogava nada até a virada do dia**. `ACTIVE_PERIOD` lia
+`data_fim >= CURRENT_DATE`, e a revogação grava `CURRENT_DATE` — então
+`DELETE /guardian-links/:linkId` respondia 204 enquanto o responsável continuava enxergando a
+criança. Num projeto cujo tema é controle de acesso, isso é o defeito, não um detalhe.
+
+E as duas grafias da regra já discordavam: as views da RLS (002 e 005) tratavam qualquer
+`data_fim` preenchida como encerramento imediato, o que errava do outro lado — registrar
+"esta professora sai em dezembro" tirava a turma dela **hoje**.
+
+A [migration 006](db/migrations/006_vigencia_exclusiva.sql) fixa a leitura **exclusiva**
+(`data_fim IS NULL OR data_fim > CURRENT_DATE`) nas views, e
+[sql/vigencia.ts](src/modules/infra/repositories/sql/vigencia.ts) passa a ser a **única**
+grafia na aplicação — `turma-escopo.ts` a reexporta, `actor.repository.ts` perdeu a cópia
+local e `user.repository.ts` deixou de escrever a regra à mão. `data_fim` é o **primeiro dia
+em que o vínculo já não vale**; revogar hoje vale hoje, agendar para dezembro vale até lá.
+
+Verificado: vincular Elias ao Théo (0 → 1 aluno visível), revogar, e a listagem volta a 0 na
+requisição seguinte. E a matriz de audiência da Fase 2 permanece intacta — admin 5, ana 4,
+diana 4, bruno 4, gabriel 2, carla 3, elias 0, fabio 403.
+
+### 3.6 — `perfil` e `usuario_perfil` ✅
+
+| Rota                           | Feature                     |
+| ------------------------------ | --------------------------- |
+| `GET \| POST /roles`           | `VIEW \| CREATE:ROLE`       |
+| `GET \| PATCH /roles/:roleId`  | `VIEW \| UPDATE:ROLE`       |
+| `GET \| POST /role-grants`     | `VIEW \| CREATE:ROLE_GRANT` |
+| `DELETE /role-grants/:grantId` | `REVOKE:ROLE_GRANT`         |
+
+Esta é a rota que **fabrica permissão**, e por isso carrega guardas que nenhuma outra tem:
+
+- **`assertNoEscalation`**
+  ([assert-no-escalation.ts](src/modules/application/use-cases/roles/assert-no-escalation.ts)):
+  ninguém concede capability que o próprio ator não tem, e a abrangência entra na conta —
+  quem tem `VIEW:POST` só em `TURMA` não pode conceder em `ESCOLA`; o contrário é permitido.
+  Sem isso, `CREATE:ROLE` era equivalente a ser administrador: bastava montar um perfil com as
+  69 capabilities e conceder a si mesmo. Vale nas **duas** rotas — em `role-grants` também,
+  senão bastaria se dar o `ADMINISTRADOR` que já existe.
+- **Perfil de sistema não é editável pela API** (403). Ele vem de migration e é a base do
+  modelo de autorização. `POST /roles` grava `sistema = false` sempre; o campo não existe no
+  corpo.
+- **`permissions` no `PATCH` substitui o conjunto inteiro.** Não existe "acrescentar uma" —
+  sem a substituição não haveria como remover permissão de um perfil.
+- **`code` não é alterável**: é a chave pela qual o resto do sistema fala do perfil.
+- **Não é possível revogar o próprio perfil** (422) — diferente da desativação de usuário,
+  aqui não há ninguém para reabrir se o ator era o único.
+- A capability é validada **duas vezes**: contra o enum `Feature` no schema (400) e contra a
+  tabela `PERMISSAO` no repositório. As duas listas podem divergir, e é essa deriva que o
+  `assertFeaturesInSync` vigia no boot.
+
+**Verificação da escalada**, executada com o Fábio (usuário sem perfil no seed): concedido a
+ele um perfil com `CREATE:ROLE` e `CREATE:ROLE_GRANT` e mais nada, ele recebe **403** ao tentar
+criar um perfil com `DELETE:POST` — com a capability excedente nomeada no `cause` —, **403** ao
+tentar conceder a si mesmo o `ADMINISTRADOR`, e **201** ao criar um perfil apenas com o
+`VIEW:PERSON` que ele de fato tem.
 
 ## Fase 3b — Catálogo de perfis de sistema
 
