@@ -5,10 +5,13 @@ import { Feature } from '@config/features.js';
 import { controller } from '@shared/adapters/index.js';
 import { singleFile } from '@shared/middlewares/index.js';
 import {
+  makeCreateCommentController,
   makeCreateMediaController,
   makeCreatePostController,
+  makeDeleteCommentController,
   makeDeleteMediaController,
   makeDeletePostController,
+  makeFindListCommentsController,
   makeFindListMediaController,
   makeFindListPostsController,
   makeFindMediaByIdController,
@@ -17,8 +20,11 @@ import {
   makeUpdatePostController,
 } from '@main/factories/posts/index.js';
 import {
+  createCommentValidator,
   createPostValidator,
+  deleteCommentValidator,
   deletePostValidator,
+  findListCommentsValidator,
   findListPostsValidator,
   findPostByIdValidator,
   mediaItemValidator,
@@ -52,6 +58,27 @@ export default (router: Router): void => {
     authz.canRequest(Feature.PostPublish),
     publishPostValidator,
     controller(makePublishPostController()),
+  );
+
+  router.get(
+    '/posts/:postId/comments',
+    authz.canRequest(Feature.CommentView),
+    findListCommentsValidator,
+    controller(makeFindListCommentsController()),
+  );
+
+  router.post(
+    '/posts/:postId/comments',
+    authz.canRequest(Feature.CommentCreate),
+    createCommentValidator,
+    controller(makeCreateCommentController()),
+  );
+
+  router.delete(
+    '/posts/:postId/comments/:commentId',
+    authz.canRequest(Feature.CommentDelete),
+    deleteCommentValidator,
+    controller(makeDeleteCommentController()),
   );
 
   router.get(

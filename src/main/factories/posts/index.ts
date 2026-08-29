@@ -1,3 +1,6 @@
+export * from './comments/create-comment/create-comment.factory.js';
+export * from './comments/delete-comment/delete-comment.factory.js';
+export * from './comments/find-list-comments/find-list-comments.factory.js';
 export * from './create-post/create-post.factory.js';
 export * from './delete-post/delete-post.factory.js';
 export * from './find-list-posts/find-list-posts.factory.js';
