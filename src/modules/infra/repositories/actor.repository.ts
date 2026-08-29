@@ -1,6 +1,7 @@
 import { ActorKind, IActorRepository, RawActor } from '@shared/auth/index.js';
 import { PostgresDatabase } from '@shared/infra/database/index.js';
 import { formatPersonName } from '@shared/utils/name/index.js';
+import { ACTIVE_PERIOD } from './sql/vigencia.js';
 
 interface ActorFeatureRow {
   ID: string;
@@ -11,9 +12,6 @@ interface ActorFeatureRow {
 interface GroupRow {
   GROUP_ID: string;
 }
-
-const ACTIVE_PERIOD = (alias: string): string =>
-  `(${alias}.data_fim IS NULL OR ${alias}.data_fim >= CURRENT_DATE)`;
 
 const JOIN_PERMISSIONS = `
   LEFT JOIN usuario_perfil up

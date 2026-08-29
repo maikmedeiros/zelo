@@ -1,3 +1,5 @@
+import { ACTIVE_PERIOD } from './vigencia.js';
+
 /**
  * Recorte de audiência da postagem, em SQL.
  *
@@ -8,8 +10,7 @@
  * São duas grafias da mesma regra e elas têm de concordar: mexeu aqui, confira as views.
  */
 
-export const ACTIVE_PERIOD = (alias: string): string =>
-  `(${alias}.data_fim IS NULL OR ${alias}.data_fim >= CURRENT_DATE)`;
+export { ACTIVE_PERIOD } from './vigencia.js';
 
 /** As três origens de vínculo do modelo v2, unidas. */
 export const TURMA_NO_ESCOPO = `
