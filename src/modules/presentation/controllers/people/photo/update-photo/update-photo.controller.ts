@@ -23,15 +23,16 @@ export class UpdatePhotoController {
       });
     }
 
-    // Sem ESCOLA, só a própria foto. O salto de `usuario.id` para `pessoa.id` é feito no SQL.
-    const ownOnly = !authz.scopesOf(actor, Feature.PhotoUpdate).includes('ESCOLA');
+    // O `canRequest` da rota já garantiu que existe alguma abrangência — o `?? 'PROPRIA'` é
+    // só o fecho do tipo, e é o valor mais restrito, que é o certo para um caso impossível.
+    const scope = authz.widestScope(actor, Feature.PhotoUpdate) ?? 'PROPRIA';
 
     const output = await this.useCase.execute({
       personId,
       originalName: file.originalname,
       content: file.buffer,
       actorId: actor.id,
-      ownOnly,
+      scope,
     });
 
     return { statusCode: 200, body: output };

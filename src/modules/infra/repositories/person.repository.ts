@@ -1,3 +1,4 @@
+import { Scope } from '@shared/auth/index.js';
 import {
   PaginatedRow,
   PostgresDatabase,
@@ -18,6 +19,7 @@ import {
 } from '../../application/mappers/people/person-mapper.js';
 import { escolaDoAtor } from './sql/escola-do-ator.js';
 import { pessoaDoAtor } from './sql/pessoa-do-ator.js';
+import { alunoVisivelParaAtor } from './sql/turma-escopo.js';
 import { PESSOA_NO_ESCOPO } from './sql/pessoa-escopo.js';
 
 const E_ALUNO = (alias: string): string =>
@@ -159,15 +161,30 @@ const SELECT_PHOTO_KEY = `
     AND (@viewerId::uuid IS NULL OR p.id IN (${PESSOA_NO_ESCOPO}));
 `;
 
-// `ownOnly` é a abrangência PROPRIA: sem ESCOLA, a pessoa alvo tem de ser a do próprio ator.
-// A comparação salta de `usuario.id` para `pessoa.id` — ver sql/pessoa-do-ator.ts.
+// A abrangência decide o alcance. `ESCOLA` dispensa a checagem; abaixo dela vale sempre a
+// própria pessoa — o salto de `usuario.id` para `pessoa.id` está em sql/pessoa-do-ator.ts —
+// e `TURMA` acrescenta a criança que o ator alcança.
+//
+// "Alcança" é o vínculo, não a turma: `alunoVisivelParaAtor` separa o responsável, que chega
+// pelo filho, da equipe, que chega pela turma. É o que impede o pai de trocar a foto do
+// coleguinha do filho, sendo que os dois estudam na mesma sala.
 const UPDATE_PHOTO_KEY = `
   UPDATE pessoa p SET
     foto_chave    = @key::text,
     atualizado_em = now()
   WHERE p.id = @personId::uuid
     AND p.escola_id = ${escolaDoAtor()}
-    AND (@ownOnly::boolean = false OR p.id = ${pessoaDoAtor()})
+    AND (
+      @scope::text = 'ESCOLA'
+      OR p.id = ${pessoaDoAtor()}
+      OR (
+        @scope::text = 'TURMA'
+        AND EXISTS (
+          SELECT 1 FROM aluno al
+          WHERE al.pessoa_id = p.id AND (${alunoVisivelParaAtor('al.id')})
+        )
+      )
+    )
   RETURNING p.id::text AS "ID";
 `;
 
@@ -284,13 +301,15 @@ export class PersonRepository implements IPersonRepository {
     personId: string,
     key: string | null,
     actorId: string,
-    ownOnly: boolean,
+    scope: Scope,
   ): Promise<boolean> {
     const rows = await this.db.query<IdRow>(UPDATE_PHOTO_KEY, {
       personId,
       key,
       actorId,
-      ownOnly,
+      // `alunoVisivelParaAtor` filtra por `@viewerId`, e aqui o observador é o próprio ator.
+      viewerId: actorId,
+      scope,
     });
 
     return rows.length > 0;

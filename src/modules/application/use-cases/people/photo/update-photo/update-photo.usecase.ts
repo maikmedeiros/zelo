@@ -1,3 +1,4 @@
+import { Scope } from '@shared/auth/index.js';
 import { IFileStorage } from '@shared/infra/storage/index.js';
 import { NotFoundError, UnprocessableEntityError } from '@shared/errors/index.js';
 import { IMAGE_MIME_TYPES, extensionFor, sniffImageMime } from '@shared/utils/image/index.js';
@@ -9,8 +10,8 @@ export interface UpdatePhotoData {
   originalName: string;
   content: Buffer;
   actorId: string;
-  /** Abrangência PROPRIA: sem ESCOLA, só a própria foto. Resolvido pelo controller. */
-  ownOnly: boolean;
+  /** A abrangência que o ator tem em `UPDATE:PHOTO`, resolvida pelo controller. */
+  scope: Scope;
 }
 
 export class UpdatePhotoUseCase {
@@ -44,10 +45,10 @@ export class UpdatePhotoUseCase {
       data.personId,
       stored.storedPath,
       data.actorId,
-      data.ownOnly,
+      data.scope,
     );
 
-    // Pessoa inexistente, de outra escola, ou a de outra pessoa sem abrangência ESCOLA. Os
+    // Pessoa inexistente, de outra escola, ou fora do alcance da abrangência do ator. Os
     // três respondem 404 pelo mesmo motivo do `find-photo`.
     if (!gravado) throw new NotFoundError({ message: 'Pessoa não encontrada' });
 

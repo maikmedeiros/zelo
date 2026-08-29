@@ -11,9 +11,9 @@ export class DeletePhotoController {
     const { actor } = request.context;
     const { personId } = personPhotoParamsSchema.parse(request.params);
 
-    const ownOnly = !authz.scopesOf(actor, Feature.PhotoUpdate).includes('ESCOLA');
+    const scope = authz.widestScope(actor, Feature.PhotoUpdate) ?? 'PROPRIA';
 
-    await this.useCase.execute(personId, actor.id, ownOnly);
+    await this.useCase.execute(personId, actor.id, scope);
 
     return { statusCode: 204 };
   }

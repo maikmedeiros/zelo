@@ -1,3 +1,4 @@
+import { Scope } from '@shared/auth/index.js';
 import { Person, PersonRole } from '../entities/person.js';
 import { PageInfo } from './pagination.js';
 
@@ -54,14 +55,21 @@ export interface IPersonRepository {
   findPhotoKey(personId: string, actorId: string, viewerId: string | null): Promise<string | null>;
 
   /**
-   * Grava (ou limpa, com `key` null) a foto. `false` quando a pessoa não existe na escola do
-   * ator ou quando `ownOnly` está ligado e a pessoa não é a do próprio ator — é a abrangência
-   * `PROPRIA` resolvida no SQL, onde `actor.id` (usuário) vira `pessoa.id`.
+   * Grava (ou limpa, com `key` null) a foto. `false` quando a pessoa está fora do alcance do
+   * ator — o que a abrangência decide:
+   *
+   * - `PROPRIA` — só a própria pessoa do ator;
+   * - `TURMA` — a própria, mais as crianças que o ator alcança: o filho, pelo vínculo de
+   *   responsável, e o aluno das turmas em que se leciona ou se tem acesso;
+   * - `ESCOLA` — qualquer pessoa da escola.
+   *
+   * `PROPRIA` compara `pessoa.id` contra a pessoa do ator, e `actor.id` é `usuario.id` — o
+   * salto entre as duas chaves é feito no SQL.
    */
   updatePhotoKey(
     personId: string,
     key: string | null,
     actorId: string,
-    ownOnly: boolean,
+    scope: Scope,
   ): Promise<boolean>;
 }

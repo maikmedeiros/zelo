@@ -17,7 +17,7 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 28/08/2026
 
-Migrations `001`–`008` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
+Migrations `001`–`009` aplicadas. `src/modules/` cobre **quinze** recursos: `sessions`,
 `posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
 `enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles` e `role-grants` —
 **64 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
@@ -806,12 +806,33 @@ responsável, que não tem nem deve ter permissão de editar cadastro:
 | Capability     | `RESPONSAVEL` | `PROFESSOR` | `COORDENACAO` | `ADMINISTRADOR` |
 | -------------- | ------------- | ----------- | ------------- | --------------- |
 | `VIEW:PHOTO`   | `TURMA`       | `TURMA`     | `ESCOLA`      | `ESCOLA`        |
-| `UPDATE:PHOTO` | `PROPRIA`     | `PROPRIA`   | `ESCOLA`      | `ESCOLA`        |
+| `UPDATE:PHOTO` | `TURMA`       | `TURMA`     | `ESCOLA`      | `ESCOLA`        |
 
 `PROPRIA` compara `pessoa.id`, e o `actor.id` é `usuario.id` — chaves diferentes. O salto é
 feito no SQL, por [`sql/pessoa-do-ator.ts`](src/modules/infra/repositories/sql/pessoa-do-ator.ts),
 irmão do `escola-do-ator`. Carregar o `pessoa_id` no `Actor` resolveria também, ao custo de
 engordar a credencial com cadastro.
+
+**O `UPDATE:PHOTO` nasceu `PROPRIA` e estava estreito demais** — a
+[migration 009](db/migrations/009_foto_do_aluno.sql) o levou a `TURMA`. `PROPRIA` é
+literalmente "a minha": o pai não conseguia subir a foto do próprio filho e a professora não
+conseguia subir a da criança da turma dela, o que empurraria toda foto de criança para a
+secretaria, a única com `ESCOLA` — justamente quem não convive com a criança.
+
+`TURMA` aqui **não** significa "qualquer pessoa da turma". Quem resolve o alcance é o
+`alunoVisivelParaAtor`, o mesmo do recorte de postagem, que separa as duas origens: o
+responsável chega à criança pelo **vínculo** e alcança só o filho; a equipe chega pela
+**turma** e alcança os alunos matriculados onde leciona ou tem acesso. Ninguém abaixo de
+`ESCOLA` troca foto de adulto alheio, porque o filtro só olha para `aluno`.
+
+Isso trouxe o [`widestScope`](src/shared/auth/functions/can.ts). Até aqui todo controller
+fazia uma pergunta binária — `scopesOf(...).includes('ESCOLA')` —, porque `PROPRIA` e `TURMA`
+caíam do mesmo lado do `if` e a diferença já estava embutida no SQL. A foto tem **três**
+saídas decididas antes da consulta, e um booleano não carrega três estados: foi assim que o
+`ownOnly` colapsou `TURMA` dentro de `PROPRIA`. E como as concessões vêm da união dos perfis
+do usuário — a professora que também é mãe carrega dois —, a mesma capability pode chegar com
+abrangências diferentes; a que vale é a **mais ampla**, porque perfil soma permissão e nunca
+subtrai.
 
 **Três rotas:** `GET`, `PUT` e `DELETE` em `/people/:personId/photo` — 61 → 64. A imagem sobe
 como `multipart/form-data` no campo `file`.
@@ -827,12 +848,26 @@ Dois defeitos achados testando, ambos corrigidos:
   `Content-Type` que o navegador obedece. `sniffImageMime` lê a assinatura real dos bytes.
   Só JPEG, PNG e WebP; SVG fica fora por ser documento com script dentro.
 
-**Verificado.** Bruno (`RESPONSAVEL`) troca a própria foto (**200**) e não a da Carla
-(**404** — não 403, para não confirmar que a pessoa existe); diana (`COORDENACAO`) troca a de
-qualquer um, inclusive a do Théo, que não tem login. No `VIEW:PHOTO`: bruno vê o filho, ana
-vê pela turma, gabriel vê o colega de turma do filho, **elias não vê ninguém** (**404**),
-fabio leva **403** e sem sessão é **401**. Arquivo que não é imagem dá **422**. As matrizes
-da Fase 2 e da Fase 3 seguem intactas.
+**Verificado.** O teste que importa são duas famílias na **mesma** turma: Théo é filho do
+`bruno` e Helena é filha do `gabriel`, os dois na Maternal I A.
+
+| Ator      | Alvo                    |         | Ator               | Alvo                 |         |
+| --------- | ----------------------- | ------- | ------------------ | -------------------- | ------- |
+| `bruno`   | ele mesmo               | **200** | `ana` (professora) | ela mesma            | **200** |
+| `bruno`   | Théo, o filho           | **200** | `ana`              | Théo, turma dela     | **200** |
+| `bruno`   | Helena, colega do filho | **404** | `ana`              | Helena, turma dela   | **200** |
+| `bruno`   | a professora Ana        | **404** | `ana`              | Lívia, Maternal II B | **404** |
+| `gabriel` | Helena, a filha         | **200** | `ana`              | o pai Bruno          | **404** |
+| `gabriel` | Théo, colega da filha   | **404** | `diana`            | qualquer um          | **200** |
+
+Cada pai alcança o próprio filho e nenhum alcança o do outro, embora as crianças dividam a
+sala — a mesma propriedade que já valia para a postagem. O `DELETE` segue a mesma régua. Sem
+perfil (`fabio`) é **403**; sem sessão, **401**.
+
+No `VIEW:PHOTO`: bruno vê o filho, ana vê pela turma, gabriel vê o colega de turma do filho,
+**elias não vê ninguém** (**404**), fabio leva **403**. Arquivo que não é imagem dá **422**,
+acima do limite dá **413**, campo `file` ausente dá **400**. As matrizes da Fase 2 e da Fase 3
+seguem intactas.
 
 ### 4.1 a 4.3 — o que falta
 
