@@ -122,6 +122,7 @@ entity / mapper / `*PersistenceRow` mantêm o nome do conceito.
 | `NotFoundError`            | 404    |
 | `MethodNotAllowedError`    | 405    |
 | `ConflictError`            | 409    |
+| `PayloadTooLargeError`     | 413    |
 | `UnprocessableEntityError` | 422    |
 | `ServiceError`             | 502    |
 | `InternalServerError`      | 500    |
@@ -148,6 +149,13 @@ dela.
   duas em paralelo se atropelam no mesmo client.
 - Para saber se um `UPDATE`/`DELETE` afetou linha, use **`RETURNING`**: recordset vazio ⇒ o
   repositório devolve `null`/`false` e o **use-case** traduz em `NotFoundError`.
+- **Upload passa pelo `singleFile`, não pelo `upload.single` cru.** O multer não lança: ele
+  entrega o `MulterError` ao `next`, e o handler global embrulharia em 500 o que é erro do
+  cliente. O wrapper em `shared/middlewares/upload.ts` traduz — arquivo grande demais vira
+  **413**, campo errado vira **400**. Ele entra **entre** o `canRequest` e o validator.
+- **Imagem é conferida pelos bytes, não pelo `mimetype`.** O `mimetype` do multer vem do
+  cabeçalho do cliente; `sniffImageMime` lê a assinatura real. Só JPEG, PNG e WebP — SVG é
+  documento com script dentro.
 - **I/O de arquivo fica FORA da transação.** Escrita em disco não faz rollback, e manter o
   upload dentro do `BEGIN` prenderia a conexão. Arquivo órfão é inofensivo: o nome carrega o
   hash do conteúdo, então um reenvio reaproveita o mesmo arquivo.

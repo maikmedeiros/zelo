@@ -65,6 +65,14 @@ export class ConflictError extends AppError {
   }
 }
 
+export class PayloadTooLargeError extends AppError {
+  readonly statusCode = 413;
+
+  constructor(params: AppErrorParams = {}) {
+    super({ message: params.message ?? 'Conteúdo maior que o limite', cause: params.cause });
+  }
+}
+
 export class UnprocessableEntityError extends AppError {
   readonly statusCode = 422;
 

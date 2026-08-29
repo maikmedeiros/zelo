@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, posix, resolve, sep } from 'node:path';
 import { slugify } from '@shared/utils/text/index.js';
 
@@ -8,6 +8,8 @@ export interface SaveFileParams {
   originalName: string;
   content: Buffer;
   mimeType: string;
+  /** Extensão a gravar, com o ponto. Omitida, usa a do nome original enviado pelo cliente. */
+  extension?: string;
 }
 
 export interface StoredFile {
@@ -19,6 +21,8 @@ export interface StoredFile {
 
 export interface IFileStorage {
   save(params: SaveFileParams): Promise<StoredFile>;
+  /** `null` quando o arquivo não está lá — banco e disco podem divergir. */
+  read(storedPath: string): Promise<Buffer | null>;
 }
 
 /**
@@ -28,10 +32,16 @@ export interface IFileStorage {
 export class LocalFileStorage implements IFileStorage {
   constructor(private readonly root: string) {}
 
-  async save({ folder, originalName, content, mimeType }: SaveFileParams): Promise<StoredFile> {
+  async save({
+    folder,
+    originalName,
+    content,
+    mimeType,
+    extension: forcedExtension,
+  }: SaveFileParams): Promise<StoredFile> {
     const contentHash = createHash('sha256').update(content).digest('hex');
 
-    const extension = extname(originalName).toLowerCase();
+    const extension = forcedExtension ?? extname(originalName).toLowerCase();
     const base =
       slugify(originalName.slice(0, originalName.length - extension.length)) || 'arquivo';
     const fileName = `${base}-${contentHash.slice(0, 12)}${extension}`;
@@ -50,6 +60,24 @@ export class LocalFileStorage implements IFileStorage {
     /* eslint-enable security/detect-non-literal-fs-filename */
 
     return { storedPath, sizeBytes: content.byteLength, mimeType, contentHash };
+  }
+
+  async read(storedPath: string): Promise<Buffer | null> {
+    const absolutePath = resolve(this.root, storedPath.split(posix.sep).join(sep));
+
+    // A mesma trava do `save`: o caminho vem do banco, mas nada garante que ninguém escreveu
+    // `../` ali. Confinar na raiz é barato e fecha o path traversal na leitura também.
+    const rootPath = resolve(this.root);
+    if (!absolutePath.startsWith(rootPath + sep)) return null;
+
+    try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      return await readFile(absolutePath);
+    } catch {
+      // Arquivo ausente não é falha da requisição: o banco aponta para um arquivo que o disco
+      // não tem, e quem traduz isso em 404 é o use-case.
+      return null;
+    }
   }
 }
 

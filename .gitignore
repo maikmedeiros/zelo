@@ -4,7 +4,11 @@ coverage/
 .env
 .env.*
 !.env.example
-uploads/
+# As imagens enviadas ficam em `public/imagens/`, mas o conteúdo não é versionado — só a
+# estrutura de pastas, pelos `.gitkeep`. O nome do arquivo carrega o hash do conteúdo, então
+# um banco recriado com o seed não encontra as imagens antigas: é esperado.
+/public/imagens/*/*
+!/public/imagens/*/.gitkeep
 semgrep.sarif
 *.log
 .DS_Store

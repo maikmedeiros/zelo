@@ -38,7 +38,7 @@ const envSchema = z
     SQL_LOG_STATEMENTS: z.preprocess(blankAsUndefined, z.stringbool().default(false)),
     DB_AUTO_MIGRATE: z.preprocess(blankAsUndefined, z.stringbool().optional()),
 
-    STORAGE_ROOT: z.string().min(1).default('./uploads'),
+    STORAGE_ROOT: z.string().min(1).default('./public/imagens'),
     UPLOAD_MAX_FILE_SIZE: z.coerce.number().int().positive().default(10_485_760),
 
     MONGO_LOG_ACTIVE: z.preprocess(blankAsUndefined, z.stringbool().default(false)),
