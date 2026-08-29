@@ -23,6 +23,19 @@ export const scopesOf = (actor: Actor, feature: string): Scope[] => {
   return SCOPES.filter((scope) => actor.features.includes(`${feature}:${scope}`));
 };
 
+/**
+ * A abrangência mais ampla que o ator tem para a capability, ou `null` se não tem nenhuma.
+ *
+ * `scopesOf` devolve todas — o que serve para perguntar "tem ESCOLA?". Quando a consulta
+ * precisa de **um** recorte para montar o filtro, é a mais ampla que vale: ter `PROPRIA` e
+ * `TURMA` ao mesmo tempo significa alcançar a turma, não menos.
+ */
+export const widestScope = (actor: Actor, feature: string): Scope | null => {
+  const scopes = scopesOf(actor, feature);
+  // SCOPES está em ordem crescente de amplitude, então o último presente é o mais amplo.
+  return scopes.length > 0 ? (scopes[scopes.length - 1] as Scope) : null;
+};
+
 export function can(actor: Actor, feature: string): boolean;
 export function can(actor: Actor, feature: string, resource: ResourceScope): boolean;
 export function can(actor: Actor, feature: string, ...rest: [ResourceScope?]): boolean {

@@ -2,7 +2,7 @@ import { RequestHandler } from 'express';
 import { Actor, ResourceScope, Scope } from './actor.js';
 import { IActorRepository } from './i-actor-repository.js';
 import { ActorModelConfig, createActorModel } from './model/actor-model.js';
-import { can, scopesOf } from './functions/can.js';
+import { can, scopesOf, widestScope } from './functions/can.js';
 import { canRequest } from './functions/can-request.js';
 import { createInjectActor } from './functions/inject-actor.js';
 import {
@@ -29,6 +29,7 @@ export interface Auth {
     (actor: Actor, feature: string, resource: ResourceScope): boolean;
   };
   scopesOf: (actor: Actor, feature: string) => Scope[];
+  widestScope: (actor: Actor, feature: string) => Scope | null;
   sessionCookie: SessionCookie;
 }
 
@@ -41,6 +42,7 @@ export const createAuth = (repository: IActorRepository, config: AuthConfig): Au
     canRequest,
     can,
     scopesOf,
+    widestScope,
     sessionCookie,
   };
 };
