@@ -15,13 +15,13 @@ migrator. É sobre ela que a reconstrução acontece.
 **Resultado pretendido:** uma API funcional com login, autorização por perfil e escopo de
 turma, e os CRUDs que sustentam a demonstração do TCC.
 
-## Estado atual — 28/08/2026
+## Estado atual — 31/08/2026
 
-Migrations `001`–`009` aplicadas. `src/modules/` cobre **dezesseis** recursos: `sessions`,
+Migrations `001`–`012` aplicadas. `src/modules/` cobre **dezoito** recursos: `sessions`,
 `posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
-`enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles`, `role-grants` e
-`reaction-types` —
-**75 rotas**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
+`enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles`, `role-grants`,
+`reaction-types`, `reports` e `report-templates` —
+**90 rotas** e **75 capabilities**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
 montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 `prettier --check` passam limpos.
 
@@ -33,13 +33,13 @@ montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 | 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                  |
 | 3b — Catálogo de perfis       | ✅ concluída (migration 007)              |
 | 4 — Conteúdo e interação      | ✅ concluída (4.0 a 4.3)                  |
-| 5 — Consentimento e relatório | ⬜                                        |
+| 5 — Consentimento e relatório | ✅ concluída (5.1 a 5.3)                  |
 | 6 — RLS                       | ⬜                                        |
 | 7 — CRUD de tokens de API     | ⬜ (era 1b; adiada para o fim)            |
 
 Verificação da Fase 1 executada contra `localhost:3003`, com o administrador de bootstrap:
-`201` no login (com `Set-Cookie` httpOnly), `200` no `sessions/current` (69 capabilities,
-todas `:ESCOLA`), `400` para chave desconhecida e corpo vazio, `401` para senha errada, para
+`201` no login (com `Set-Cookie` httpOnly), `200` no `sessions/current` (todas as
+capabilities, `:ESCOLA`), `400` para chave desconhecida e corpo vazio, `401` para senha errada, para
 ausência de credencial e para Bearer sem o prefixo `zelo_`, `404` em rota inexistente, `204`
 no logout e `401` no acesso seguinte — a sessão é revogada de fato.
 
@@ -951,11 +951,194 @@ cada um e a contagem compartilhada. Remover devolve **204**, e de novo **404**.
 As matrizes da Fase 2 e da Fase 3 seguem intactas, e os dados de teste foram removidos do
 banco e do disco.
 
-## Fase 5 — Consentimento e relatório
+## Fase 5 — Consentimento e relatório ✅
 
 `consentimento` é **série temporal, não booleano**: criar é linha nova, revogar é fechar
-`vigencia_fim` da linha vigente — nunca `UPDATE` destrutivo. `relatorio_adaptacao` +
-`relatorio_item`, com publicação exigindo `publicado_em`.
+`vigencia_fim` da linha vigente — nunca `UPDATE` destrutivo. O relatório é `relatorio` +
+`relatorio_item`, com publicação exigindo `publicado_em`, e ganhou uma camada de templates que
+esta fase não previa (5.3b).
+
+### 5.1 — `consentimento` ✅
+
+| Rota                                              | Capability       | Observação                                    |
+| ------------------------------------------------- | ---------------- | --------------------------------------------- |
+| `GET /students/:studentId/consents`               | `VIEW:CONSENT`   | histórico completo, a série inteira           |
+| `POST /students/:studentId/consents`              | `CREATE:CONSENT` | fecha a vigente e abre a nova, numa transação |
+| `DELETE /students/:studentId/consents/:consentId` | `REVOKE:CONSENT` | fecha `vigencia_fim`; a linha permanece       |
+
+Três tipos, vindos do modelo: `IMAGEM_INTERNA`, `IMAGEM_EXTERNA`, `TRATAMENTO_BIOMETRICO`.
+Quatro origens: `TERMO_MATRICULA`, `PORTAL_RESPONSAVEL`, `IMPORTACAO`, `SOLICITACAO_VERBAL`.
+
+O `POST` **não é `UPDATE`**: fecha a linha vigente com
+`greatest(now(), vigencia_inicio + interval '1 microsecond')` e insere a nova, as duas na mesma
+transação. O `greatest` existe porque conceder e revogar no mesmo instante deixaria
+`vigencia_fim < vigencia_inicio` e violaria o CHECK do banco.
+
+**`responsavel_aluno.pode_consentir` virou guarda de verdade.** Ter a capability não é o mesmo
+que poder decidir pela criança — o modelo distingue quem tem vínculo de quem tem autoridade, e
+a coluna estava lá sem uso. O `consent-authority.ts` traduz isso em três respostas: **403**
+quando o vínculo do próprio ator não autoriza, **403** quando um responsável tenta registrar em
+nome de outro, **422** quando a escola indica um `guardianId` sem vínculo vigente ou sem
+autoridade para consentir.
+
+### 5.2 — Consulta do consentimento por turma ✅
+
+`GET /classes/:classId/consents`, capability `VIEW:CONSENT`.
+
+Uma linha por criança da turma com o estado **vigente** dos três tipos — é a rota que torna
+operável a decisão registrada abaixo, porque é o que a professora consulta antes de postar.
+
+Os três tipos aparecem sempre, inclusive os que nunca foram registrados (`granted: null`), via
+`unnest(@types::text[]) WITH ORDINALITY`: ausência de registro é informação e sumiria num
+`JOIN` simples — "não sei" não é "não autorizou".
+
+A feature chama-se `find-list-class-consents`, e não `find-list-consents`, porque o segundo
+nome já é do histórico de uma criança. A exceção está registrada na §3 do `CLAUDE.md`.
+
+### Decisão registrada: o sistema **registra** o consentimento, não o aplica
+
+Decisão do cliente em 31/08/2026, e ela contraria o que eu havia proposto.
+
+Minha proposta era aplicar: filtrar mídia na leitura e recusar publicação conforme o
+consentimento vigente. O problema, nas palavras dele: _"se a professora postar uma foto da
+classe toda, quando a família colocar depois que não quer que o filho dela apareça nas
+postagens, todas as famílias vão ser punidas."_
+
+Está certo, e o custo cairia no lugar errado. Uma foto de turma tem N crianças; uma revogação
+esconderia a foto das N famílias por causa de uma. O bloqueio automático converte o direito de
+uma família em perda para as outras.
+
+Então: o sistema **guarda o registro e o expõe** (5.2); a professora consulta antes de postar e
+é responsável por não fotografar quem não autorizou. As fotos já publicadas ficam para uma
+feature do fim do projeto — reprocessamento por revogação, que é para o que existe o
+`hash_politica` em `midia_variante`.
+
+Consequência que o texto do TCC precisa assumir: o consentimento aqui é **controle
+administrativo**, não técnico. É escolha defensável e comum em software escolar, mas tem de
+estar escrita como escolha — não pode passar como se fosse aplicação automática.
+
+### 5.3a — `relatorio` ✅
+
+| Rota                                  | Capability       | Observação                               |
+| ------------------------------------- | ---------------- | ---------------------------------------- |
+| `GET /reports`                        | `VIEW:REPORT`    | filtros `studentId`, `classId`, `status` |
+| `POST /reports`                       | `CREATE:REPORT`  | aceita `templateId` (5.3b)               |
+| `GET /reports/:reportId`              | `VIEW:REPORT`    | detalhe com síntese e os sete itens      |
+| `PATCH /reports/:reportId`            | `UPDATE:REPORT`  | `items` altera **dimensão a dimensão**   |
+| `POST /reports/:reportId/publication` | `PUBLISH:REPORT` | grava `publicado_em`                     |
+| `DELETE /reports/:reportId`           | `DELETE:REPORT`  | só rascunho                              |
+
+Sete dimensões fixas (`ACOLHIMENTO` … `DESENVOLVIMENTO_MOTOR`) e quatro níveis
+(`NAO_OBSERVADO` … `CONSOLIDADO`).
+
+**O rascunho não chega à família.** A visibilidade mostra ao responsável apenas o
+`PUBLICADO`; autor e equipe da turma enxergam o rascunho. O documento é entregue quando a
+escola decide entregá-lo, não enquanto está sendo escrito.
+
+**Publicar congela.** `PATCH` em relatório publicado devolve **409** — "a família já recebeu
+esta versão". É essa regra, e não um arquivo gerado, que garante a imutabilidade do que foi
+entregue. Publicar exige conteúdo: síntese ou ao menos uma dimensão diferente de
+`NAO_OBSERVADO`, senão **422**.
+
+Coordenação entrou com `CREATE:REPORT` e `UPDATE:REPORT` em `TURMA` (migration `010`).
+
+### Correção de 31/08: quem apaga relatório, e o que dá para apagar
+
+A `010` deixou `DELETE:REPORT` só com o administrador, e escreveu o porquê: "relatório
+apagado é documento sobre uma criança que some". A regra, na prática, saiu pela culatra
+duas vezes.
+
+**A professora não conseguia descartar o próprio rascunho.** Errava a criança ou o período,
+levava **403**, e o rascunho ficava no banco para sempre — invisível para ela, presente no
+dado. Proteger criança nenhuma; só atrapalhar quem escreve.
+
+**E a proteção que a `010` pensava estar dando não existia.** O `DELETE` do repositório era
+`DELETE FROM relatorio WHERE r.id = @reportId`, sem filtro de status, e o use-case não
+checava nada: o administrador apagava um relatório **publicado**, com os sete itens junto
+(a FK de `relatorio_item` é `ON DELETE CASCADE`). Ou seja, o "publicar congela" valia para o
+`PATCH` e não valia para o `DELETE` — dava **409** para mudar uma palavra e **204** para
+apagar o documento inteiro.
+
+A migration `013` concede `DELETE:REPORT` em `PROPRIA` para `PROFESSOR` e em `TURMA` para
+`COORDENACAO`, e o `delete-report.usecase` passa a recusar remover `PUBLICADO` com **409**.
+A imutabilidade sai da capability e vai para o **status**, que é onde ela já morava para a
+edição.
+
+Consequência assumida: **o administrador também não apaga mais um relatório publicado pela
+API.** Se um dia aparecer pedido de eliminação por LGPD, ele é um fluxo próprio — anonimizar
+com rastro —, e não este `DELETE`.
+
+### 5.3b — `relatorio_template` ✅
+
+Não estava previsto. Nasceu do pedido de 31/08: o relatório vai para os pais, então precisa de
+um formulário pronto que facilite o preenchimento, e a própria professora cria os modelos.
+
+Migration `011`: `relatorio_template`, `relatorio_template_item`, a coluna
+`relatorio.template_origem_id` e as quatro capabilities `*:REPORT_TEMPLATE`. Cinco rotas, o
+CRUD completo em `/report-templates`.
+
+Decisões:
+
+- **O template é da escola, não do autor** — qualquer professora usa o de uma colega. Decisão
+  do cliente.
+- **Coordenação tem as mesmas permissões da professora**, mudando só a abrangência:
+  `UPDATE`/`DELETE` em `PROPRIA` para `PROFESSOR`, `ESCOLA` para `COORDENACAO`.
+- **Aplicar template é cópia, não vínculo.** O `templateId` no `POST /reports` copia síntese e
+  itens; editar o template depois não mexe em relatório nenhum. O `template_origem_id` é
+  rastro, não referência viva — é o que impede que corrigir um modelo reescreva o que já foi
+  entregue à família.
+- **Remoção é lógica** (`ativo = false`), para o relatório antigo continuar apontando para o
+  template que o originou. O índice único de nome é parcial (`WHERE ativo`), então o nome volta
+  a ficar livre depois da remoção.
+- **`items` no `PATCH` do template substitui o conjunto; no `PATCH` do relatório, altera
+  dimensão a dimensão.** São opostos de propósito: o relatório é formulário de sete campos
+  fixos, o template é lista livre que o editor manda inteira. Está escrito nas duas pontas da
+  coleção do Postman, cada uma apontando para a outra.
+
+### Decisão registrada: `relatorio_adaptacao` → `relatorio`
+
+Migration `012`. "Relatório de adaptação" é **título, não tipo**: a professora escreve no
+título do template se aquele é o de adaptação, o do primeiro semestre ou o do segundo. A tabela
+batizada com o primeiro caso de uso teria travado todos os outros.
+
+Renomeados junto a PK, as quatro FKs, a policy `relatorio_audiencia` e o trigger. Ficou
+pendente, e é dívida barata enquanto não houver dado real: os enums `dimensao_adaptacao` e
+`nivel_adaptacao` mantêm o nome antigo.
+
+### PDF — adiado, vira feature do fim
+
+Cogitado como 5.3c e descartado em 31/08, a pedido do cliente. Os dois motivos pelos quais eu
+o havia proposto já estão resolvidos em outro lugar: a imutabilidade do que a família recebeu
+vem da regra `RASCUNHO`/`PUBLICADO`, e a leitura é tela — o navegador imprime, sem risco de o
+arquivo divergir do banco.
+
+Ele volta quando existir entrega **fora** do app (anexo de e-mail, via assinada em papel) — aí
+o documento precisa existir como arquivo, e o lugar é uma porta `IPdfRenderer` no domínio com o
+adapter no `infra`.
+
+### Verificação da Fase 5
+
+**Consentimento.** Bruno alcança o consentimento do Théo e leva **404** no da Helena; gabriel,
+o inverso — mesma turma, os dois sentidos. Na consulta por turma, cada pai vê exatamente uma
+linha, a do próprio filho, enquanto ana e diana veem a turma inteira. Registrar duas vezes o
+mesmo tipo deixa **uma** linha vigente e a anterior fechada, nunca duas abertas. Responsável
+tentando consentir em nome de outro, **403**; `guardianId` sem vínculo, **422**.
+
+**Relatório.** Matriz de visibilidade: ana **2**, diana **2**, bruno **1**, gabriel **0**,
+carla **0**, elias **0**, fabio **403**. O **0** do gabriel é a regra do rascunho — o relatório
+da filha dele existe, está em `RASCUNHO`, e ele leva **404** até a escola publicar.
+
+**Dono.** Ana edita o próprio (`PROPRIA`, **200**); diana edita o da colega (`ESCOLA`,
+**200**); autor sem abrangência no alheio, **404**. Publicar duas vezes, **409**. Editar
+publicado, **409**. Publicar vazio, **422**.
+
+**Template.** Aplicar o modelo semeado copia a síntese e os cinco textos para as sete
+dimensões, completando com `NAO_OBSERVADO` as duas que o template não preenche. Nome repetido
+na mesma escola, **409**, e a comparação ignora a caixa. Remoção lógica libera o nome, e o
+relatório que veio daquele template continua legível.
+
+**Regressão.** As matrizes anteriores intactas: postagens `5/4/4/4/2/3/0` com `403` para fabio,
+alunos `3/2/3/1/1/1/0`. Banco devolvido ao estado do seed.
 
 ## Fase 6 — Ligar a RLS (defesa em profundidade)
 
