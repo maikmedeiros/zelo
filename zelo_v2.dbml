@@ -966,7 +966,7 @@ Table NOTIFICACAO {
   escola_id    uuid             [not null, ref: > ESCOLA.id]
   tipo         tipo_notificacao [not null]
   postagem_id  uuid             [ref: > POSTAGEM.id]
-  relatorio_id uuid             [ref: > RELATORIO_ADAPTACAO.id]
+  relatorio_id uuid             [ref: > RELATORIO.id]
   assunto      text             [not null]
   corpo_resumo text             [note: 'Texto curto. NUNCA a foto nem link público para ela.']
   criado_em    timestamptz      [not null, default: `now()`]
@@ -1029,10 +1029,10 @@ Table NOTIFICACAO_DESTINATARIO {
 }
 
 // =============================================================================
-// 8. RELATÓRIO DE ADAPTAÇÃO
+// 8. RELATÓRIO
 // =============================================================================
 
-Table RELATORIO_ADAPTACAO {
+Table RELATORIO {
   id                 uuid             [pk, default: `gen_random_uuid()`]
   aluno_id           uuid             [not null, ref: > ALUNO.id]
   turma_id           uuid             [not null, ref: > TURMA.id]
@@ -1053,7 +1053,7 @@ Table RELATORIO_ADAPTACAO {
 
 Table RELATORIO_ITEM {
   id           uuid               [pk, default: `gen_random_uuid()`]
-  relatorio_id uuid               [not null, ref: > RELATORIO_ADAPTACAO.id]
+  relatorio_id uuid               [not null, ref: > RELATORIO.id]
   dimensao     dimensao_adaptacao [not null]
   nivel        nivel_adaptacao    [not null, default: 'NAO_OBSERVADO']
   observacao   text
@@ -1249,7 +1249,7 @@ TableGroup notificacao {
 }
 
 TableGroup acompanhamento {
-  RELATORIO_ADAPTACAO
+  RELATORIO
   RELATORIO_ITEM
   RELATORIO_TEMPLATE
   RELATORIO_TEMPLATE_ITEM

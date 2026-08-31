@@ -329,7 +329,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Dois relatórios da Ana sobre crianças da Turma A: um PUBLICADO, que o Bruno enxerga, e um
 -- RASCUNHO, que só a equipe da turma alcança. É o par que exercita a regra de visibilidade.
 
-INSERT INTO relatorio_adaptacao
+INSERT INTO relatorio
   (id, aluno_id, turma_id, autor_id, periodo_inicio, periodo_fim, status, sintese, publicado_em)
 VALUES
   (
@@ -359,7 +359,7 @@ SELECT
   d.dimensao::dimensao_adaptacao,
   coalesce(v.nivel, 'NAO_OBSERVADO')::nivel_adaptacao,
   v.observacao
-FROM relatorio_adaptacao r
+FROM relatorio r
 CROSS JOIN unnest(ARRAY[
   'ACOLHIMENTO', 'ALIMENTACAO', 'SONO', 'SOCIALIZACAO',
   'AUTONOMIA', 'LINGUAGEM', 'DESENVOLVIMENTO_MOTOR'
@@ -370,8 +370,8 @@ LEFT JOIN (VALUES
   ('7bbbbbbb-0000-0000-0000-000000000001', 'SONO',         'CONSOLIDADO',        'Dorme o período todo sem colo.'),
   ('7bbbbbbb-0000-0000-0000-000000000001', 'SOCIALIZACAO', 'EM_DESENVOLVIMENTO', 'Brinca ao lado dos colegas, ainda pouca troca.'),
   ('7bbbbbbb-0000-0000-0000-000000000001', 'LINGUAGEM',    'EM_INICIO',          'Fala por palavra solta, aponta o que quer.')
-) AS v(relatorio_adaptacao, dimensao, nivel, observacao)
-  ON v.relatorio_adaptacao::uuid = r.id AND v.dimensao = d.dimensao
+) AS v(relatorio, dimensao, nivel, observacao)
+  ON v.relatorio::uuid = r.id AND v.dimensao = d.dimensao
 WHERE r.id IN (
   '7bbbbbbb-0000-0000-0000-000000000001',
   '7bbbbbbb-0000-0000-0000-00000000000a'

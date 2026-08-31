@@ -86,7 +86,7 @@ const SELECT_LIST = `
     @limit::int                                            AS "LIMITE_PAGINA",
     count(*) OVER ()::int                                  AS "TOTAL_REGISTRO",
     ceil(count(*) OVER ()::numeric / @limit::numeric)::int  AS "TOTAL_PAGINA"
-  FROM relatorio_adaptacao r
+  FROM relatorio r
   ${FILTRO}
   ORDER BY r.periodo_inicio DESC, pa.nome, r.id
   LIMIT @limit::int OFFSET @offset::int;
@@ -98,7 +98,7 @@ const SELECT_LIST_COUNT = `
     @limit::int                                     AS "LIMITE_PAGINA",
     count(*)::int                                   AS "TOTAL_REGISTRO",
     ceil(count(*)::numeric / @limit::numeric)::int  AS "TOTAL_PAGINA"
-  FROM relatorio_adaptacao r
+  FROM relatorio r
   ${FILTRO};
 `;
 
@@ -108,7 +108,7 @@ const SELECT_BY_ID = `
     r.sintese                       AS "SINTESE",
     r.template_origem_id::text      AS "TEMPLATE_ORIGEM_ID",
     (${ITENS_DO_RELATORIO})         AS "ITENS"
-  FROM relatorio_adaptacao r
+  FROM relatorio r
   ${JOINS}
   WHERE r.id = @reportId::uuid
     AND pa.escola_id = ${escolaDoAtor()}
@@ -132,7 +132,7 @@ const SELECT_OWNERSHIP = `
                OR (ri.observacao IS NOT NULL AND btrim(ri.observacao) <> ''))
       )
     ) AS "TEM_CONTEUDO"
-  FROM relatorio_adaptacao r
+  FROM relatorio r
   WHERE r.id = @reportId::uuid;
 `;
 
@@ -154,7 +154,7 @@ const INSERT = `
     ORDER BY m.data_inicio DESC
     LIMIT 1
   )
-  INSERT INTO relatorio_adaptacao
+  INSERT INTO relatorio
     (aluno_id, turma_id, autor_id, periodo_inicio, periodo_fim, sintese, template_origem_id)
   SELECT
     @studentId::uuid,
@@ -183,7 +183,7 @@ const INSERT_ITENS = `
 `;
 
 const UPDATE = `
-  UPDATE relatorio_adaptacao r SET
+  UPDATE relatorio r SET
     sintese        = CASE WHEN @touchSynthesis::boolean THEN @synthesis::text ELSE r.sintese END,
     periodo_inicio = coalesce(@periodStart::date, r.periodo_inicio),
     periodo_fim    = coalesce(@periodEnd::date, r.periodo_fim),
@@ -202,7 +202,7 @@ const UPDATE_ITEM = `
 `;
 
 const PUBLISH = `
-  UPDATE relatorio_adaptacao r SET
+  UPDATE relatorio r SET
     status        = 'PUBLICADO',
     publicado_em  = now(),
     atualizado_em = now()
@@ -211,7 +211,7 @@ const PUBLISH = `
 `;
 
 const DELETE = `
-  DELETE FROM relatorio_adaptacao r
+  DELETE FROM relatorio r
   WHERE r.id = @reportId::uuid
   RETURNING r.id::text AS "ID";
 `;
