@@ -206,16 +206,21 @@ dela.
 
 ## 11. Comentários
 
-Comentário é **exceção**. Antes de escrever um, torne o código claro (nome, tipo, extração
-de função).
+**Só `TODO` e `FIXME`. Nada mais.** Decisão de 31/08/2026, e ela vale para todo arquivo
+criado ou editado a partir dali.
 
-- **Explique o "porquê", nunca o "o quê".** Só justifique decisão de negócio, premissa,
-  restrição ou algoritmo não-óbvio.
-- Nada de redundante, nada de código morto comentado, **não assine o código**.
+O rationale de uma decisão vai para o **corpo do commit** ou para o `PLANO.md` — lugares onde
+ele é versionado sem poluir a leitura do código e sem apodrecer junto com a linha que
+comentava. O que explica o código é o próprio código: nome, tipo, extração de função.
+
 - **`// TODO(escopo)` é convenção do projeto** — em uso: `TODO(cdn)`, `TODO(rls)`,
-  `TODO(html)`, `TODO(ci)`. Marca o ponto exato de troca.
-- Régua: um módulo bem escrito tende a **zero** comentários. O que fica são coisas como a
-  restrição de ordem de rotas e o rationale do pool.
+  `TODO(html)`, `TODO(ci)`, `TODO(doc)`. Marca o ponto exato de troca.
+- **`// FIXME(escopo)`** para defeito conhecido que ainda não foi corrigido.
+- Nada de código morto comentado, **não assine o código**.
+- Régua: um arquivo novo tende a **zero** comentários.
+
+Os comentários de "porquê" que já existem no código são anteriores a esta decisão e **ficam
+onde estão** — não há campanha de remoção. Ao editar um arquivo que os tem, não crie novos.
 
 ---
 
