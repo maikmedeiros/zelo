@@ -1,4 +1,4 @@
-import { NotFoundError } from '@shared/errors/index.js';
+import { ConflictError, NotFoundError } from '@shared/errors/index.js';
 import { IReportRepository } from '../../../../domain/repositories/i-report-repository.js';
 import { ReportGuard } from '../report-guard.js';
 
@@ -10,6 +10,12 @@ export class DeleteReportUseCase {
 
     if (!ownership || !guard(ownership)) {
       throw new NotFoundError({ message: 'Relatório não encontrado' });
+    }
+
+    if (ownership.status !== 'RASCUNHO') {
+      throw new ConflictError({
+        message: 'Relatório publicado não é removido — a família já recebeu esta versão',
+      });
     }
 
     const removeu = await this.reportRepo.delete(reportId);
