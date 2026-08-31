@@ -20,6 +20,11 @@
 --             aparece como 200 indevido, não como 403.
 --   Fábio   — sem perfil nenhum: é ele quem exercita o 403 de qualquer rota.
 --
+-- E, do outro extremo da régua, Isabel — ADMINISTRADOR. Ela existe porque o `admin` da
+-- migration 004 é conta de bootstrap (login `admin`, sem formato de e-mail, senha `admin`) e
+-- não serve de persona: quem demonstra o perfil mais amplo numa tela de login de verdade
+-- precisa ter e-mail e a mesma senha das outras.
+--
 -- Idempotente: UUIDs fixos e ON CONFLICT DO NOTHING em tudo. Pode rodar quantas vezes
 -- quiser sem duplicar linha.
 --
@@ -76,7 +81,8 @@ INSERT INTO pessoa (id, escola_id, nome, data_nascimento, cpf, email_contato) VA
   ('33333333-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', 'Lívia Duarte',     DATE '2022-06-19', NULL,          NULL),
   ('33333333-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', 'Fábio Gomes',      DATE '1994-02-14', '10666666601', 'fabio@zelo.test'),
   ('33333333-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', 'Gabriel Nunes',    DATE '1989-05-02', '10777777797', 'gabriel@zelo.test'),
-  ('33333333-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Helena Nunes',     DATE '2023-01-27', NULL,          NULL)
+  ('33333333-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Helena Nunes',     DATE '2023-01-27', NULL,          NULL),
+  ('33333333-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-000000000001', 'Isabel Prado',     DATE '1979-10-08', '10888888872', 'isabel@zelo.test')
 ON CONFLICT (id) DO NOTHING;
 
 -- Backfill: bancos que rodaram o seed antes de o CPF existir têm as linhas acima com
@@ -89,7 +95,8 @@ FROM (VALUES
   ('33333333-0000-0000-0000-000000000004'::uuid, '10444444440'),
   ('33333333-0000-0000-0000-000000000005'::uuid, '10555555526'),
   ('33333333-0000-0000-0000-000000000008'::uuid, '10666666601'),
-  ('33333333-0000-0000-0000-000000000009'::uuid, '10777777797')
+  ('33333333-0000-0000-0000-000000000009'::uuid, '10777777797'),
+  ('33333333-0000-0000-0000-00000000000b'::uuid, '10888888872')
 ) AS v(id, cpf)
 WHERE pessoa.id = v.id AND pessoa.cpf IS NULL;
 
@@ -107,7 +114,8 @@ INSERT INTO usuario (id, pessoa_id, email, senha_hash, email_verificado) VALUES
   ('44444444-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005', 'elias@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2HDHI2bpbcybMmhzB6v1tA$b+QVfUWNC7DTpapLoTSiUkK1LmgyfgmuU2mN1Y90zsI', true),
   -- Sem linha em USUARIO_PERFIL de propósito: loga, mas não tem capability nenhuma.
   ('44444444-0000-0000-0000-000000000008', '33333333-0000-0000-0000-000000000008', 'fabio@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$IauyeR3mjQZzuErJdjitBg$jH8lD3AvhSjz8jrxKcYBohAeOo56os2XG9K/tRzYh8w', true),
-  ('44444444-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009', 'gabriel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2d3hWpRdWKTBGgoOAb5p3A$S1KMooYK1fVfv/6oE4hiyzadVBLctiTi6TB5TqFfVYQ', true)
+  ('44444444-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009', 'gabriel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2d3hWpRdWKTBGgoOAb5p3A$S1KMooYK1fVfv/6oE4hiyzadVBLctiTi6TB5TqFfVYQ', true),
+  ('44444444-0000-0000-0000-00000000000b', '33333333-0000-0000-0000-00000000000b', 'isabel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$zhjdLnKSWsbbrVWOiH1mcg$XrcP3EM9IwqUuMpmkzepDZsvoih0kWiHftzin6y/L9A', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -191,7 +199,8 @@ FROM (VALUES
   ('67777777-0000-0000-0000-000000000003'::uuid, '44444444-0000-0000-0000-000000000003'::uuid, 'RESPONSAVEL'),
   ('67777777-0000-0000-0000-000000000004'::uuid, '44444444-0000-0000-0000-000000000004'::uuid, 'COORDENACAO'),
   ('67777777-0000-0000-0000-000000000005'::uuid, '44444444-0000-0000-0000-000000000005'::uuid, 'RESPONSAVEL'),
-  ('67777777-0000-0000-0000-000000000009'::uuid, '44444444-0000-0000-0000-000000000009'::uuid, 'RESPONSAVEL')
+  ('67777777-0000-0000-0000-000000000009'::uuid, '44444444-0000-0000-0000-000000000009'::uuid, 'RESPONSAVEL'),
+  ('67777777-0000-0000-0000-00000000000b'::uuid, '44444444-0000-0000-0000-00000000000b'::uuid, 'ADMINISTRADOR')
 ) AS v(id, usuario_id, codigo)
 INNER JOIN perfil f
   ON f.codigo = v.codigo AND f.escola_id = '00000000-0000-0000-0000-000000000001'
