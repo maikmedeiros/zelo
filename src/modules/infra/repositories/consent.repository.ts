@@ -4,10 +4,12 @@ import {
   emptyPagination,
   paginationFromRow,
 } from '@shared/infra/database/index.js';
-import { Consent } from '../../domain/entities/consent.js';
+import { CONSENT_TYPES, Consent } from '../../domain/entities/consent.js';
 import {
   CreateConsentData,
   IConsentRepository,
+  ListClassConsentsFilters,
+  ListClassConsentsResult,
   ListConsentsFilters,
   ListConsentsResult,
 } from '../../domain/repositories/i-consent-repository.js';
@@ -15,8 +17,12 @@ import {
   ConsentMapper,
   ConsentPersistenceRow,
 } from '../../application/mappers/students/consents/consent-mapper.js';
+import {
+  ClassConsentMapper,
+  ClassConsentPersistenceRow,
+} from '../../application/mappers/classes/consents/class-consent-mapper.js';
 import { escolaDoAtor } from './sql/escola-do-ator.js';
-import { alunoVisivelParaAtor } from './sql/turma-escopo.js';
+import { ACTIVE_PERIOD, alunoVisivelParaAtor } from './sql/turma-escopo.js';
 
 const JOINS = `
   INNER JOIN aluno al    ON al.id = c.aluno_id
@@ -134,6 +140,69 @@ const REVOKE = `
   RETURNING c.id::text AS "ID";
 `;
 
+const MATRICULADOS_DA_TURMA = `
+  FROM matricula m
+  INNER JOIN aluno al  ON al.id = m.aluno_id
+  INNER JOIN pessoa pa ON pa.id = al.pessoa_id
+  INNER JOIN turma t   ON t.id = m.turma_id
+  WHERE m.turma_id = @classId::uuid
+    AND ${ACTIVE_PERIOD('m')}
+    AND pa.escola_id = ${escolaDoAtor()}
+    AND (${alunoVisivelParaAtor('al.id')})
+`;
+
+const ESTADO_VIGENTE = `
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'TIPO', tp.tipo,
+             'ID', c.id::text,
+             'CONCEDIDO', c.concedido,
+             'ORIGEM', c.origem::text,
+             'VIGENCIA_INICIO', c.vigencia_inicio
+           )
+           ORDER BY tp.ordem)
+  FROM unnest(@types::text[]) WITH ORDINALITY AS tp(tipo, ordem)
+  LEFT JOIN consentimento c
+    ON c.aluno_id = pagina.id
+   AND c.tipo = tp.tipo::tipo_consentimento
+   AND c.vigencia_fim IS NULL
+`;
+
+const SELECT_BY_CLASS = `
+  WITH pagina AS (
+    SELECT
+      al.id,
+      pa.nome AS nome_aluno,
+      t.id AS turma_id,
+      t.nome AS nome_turma,
+      count(*) OVER () AS total_registro
+    ${MATRICULADOS_DA_TURMA}
+    ORDER BY pa.nome, al.id
+    LIMIT @limit::int OFFSET @offset::int
+  )
+  SELECT
+    pagina.id::text                                             AS "ALUNO_ID",
+    pagina.nome_aluno                                           AS "NOME_ALUNO",
+    pagina.turma_id::text                                       AS "TURMA_ID",
+    pagina.nome_turma                                           AS "NOME_TURMA",
+    (${ESTADO_VIGENTE})                                         AS "CONSENTIMENTOS",
+    @page::int                                                  AS "PAGINA_ATUAL",
+    @limit::int                                                 AS "LIMITE_PAGINA",
+    pagina.total_registro::int                                  AS "TOTAL_REGISTRO",
+    ceil(pagina.total_registro::numeric / @limit::numeric)::int  AS "TOTAL_PAGINA"
+  FROM pagina
+  ORDER BY pagina.nome_aluno, pagina.id;
+`;
+
+const SELECT_BY_CLASS_COUNT = `
+  SELECT
+    @page::int                                      AS "PAGINA_ATUAL",
+    @limit::int                                     AS "LIMITE_PAGINA",
+    count(*)::int                                   AS "TOTAL_REGISTRO",
+    ceil(count(*)::numeric / @limit::numeric)::int  AS "TOTAL_PAGINA"
+  ${MATRICULADOS_DA_TURMA};
+`;
+
 interface IdRow {
   ID: string;
 }
@@ -164,6 +233,36 @@ export class ConsentRepository implements IConsentRepository {
     }
 
     const totais = await this.db.query<PaginatedRow>(SELECT_LIST_COUNT, variables);
+    const total = totais[0];
+
+    return {
+      items: [],
+      pagination: total ? paginationFromRow(total) : emptyPagination(filters.page, filters.limit),
+    };
+  }
+
+  async listByClass(filters: ListClassConsentsFilters): Promise<ListClassConsentsResult> {
+    const variables = {
+      page: filters.page,
+      limit: filters.limit,
+      offset: (filters.page - 1) * filters.limit,
+      classId: filters.classId,
+      types: [...CONSENT_TYPES],
+      actorId: filters.actorId,
+      viewerId: filters.viewerId,
+    };
+
+    const rows = await this.db.query<ClassConsentPersistenceRow>(SELECT_BY_CLASS, variables);
+
+    const first = rows[0];
+    if (first) {
+      return {
+        items: rows.map(ClassConsentMapper.fromPersistence),
+        pagination: paginationFromRow(first),
+      };
+    }
+
+    const totais = await this.db.query<PaginatedRow>(SELECT_BY_CLASS_COUNT, variables);
     const total = totais[0];
 
     return {

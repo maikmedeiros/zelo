@@ -27,3 +27,19 @@ export interface Consent {
   endedAt: Date | null;
   createdAt: Date;
 }
+
+export interface ConsentState {
+  type: ConsentType;
+  consentId: string | null;
+  granted: boolean | null;
+  origin: ConsentOrigin | null;
+  startedAt: Date | null;
+}
+
+export interface StudentConsentStatus {
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  consents: ConsentState[];
+}

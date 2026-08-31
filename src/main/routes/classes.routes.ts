@@ -6,6 +6,7 @@ import {
   makeCreateClassController,
   makeDeleteClassController,
   makeFindClassByIdController,
+  makeFindListClassConsentsController,
   makeFindListClassesController,
   makeUpdateClassController,
 } from '@main/factories/classes/index.js';
@@ -13,6 +14,7 @@ import {
   createClassValidator,
   deleteClassValidator,
   findClassByIdValidator,
+  findListClassConsentsValidator,
   findListClassesValidator,
   updateClassValidator,
 } from '@modules/presentation/validators/classes/index.js';
@@ -21,6 +23,7 @@ export default (router: Router): void => {
   router.get(
     '/classes',
     authz.canRequest(Feature.ClassView),
+    findListClassConsentsValidator,
     findListClassesValidator,
     controller(makeFindListClassesController()),
   );
@@ -30,6 +33,13 @@ export default (router: Router): void => {
     authz.canRequest(Feature.ClassCreate),
     createClassValidator,
     controller(makeCreateClassController()),
+  );
+
+  router.get(
+    '/classes/:classId/consents',
+    authz.canRequest(Feature.ConsentView),
+    findListClassConsentsValidator,
+    controller(makeFindListClassConsentsController()),
   );
 
   router.get(

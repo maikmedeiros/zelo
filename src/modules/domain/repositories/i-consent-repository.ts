@@ -1,4 +1,4 @@
-import { Consent, ConsentOrigin, ConsentType } from '../entities/consent.js';
+import { Consent, ConsentOrigin, ConsentType, StudentConsentStatus } from '../entities/consent.js';
 import { PageInfo } from './pagination.js';
 
 export interface ListConsentsFilters {
@@ -16,6 +16,19 @@ export interface ListConsentsResult {
   pagination: PageInfo;
 }
 
+export interface ListClassConsentsFilters {
+  page: number;
+  limit: number;
+  classId: string;
+  actorId: string;
+  viewerId: string | null;
+}
+
+export interface ListClassConsentsResult {
+  items: StudentConsentStatus[];
+  pagination: PageInfo;
+}
+
 export interface CreateConsentData {
   studentId: string;
   type: ConsentType;
@@ -29,6 +42,8 @@ export interface CreateConsentData {
 
 export interface IConsentRepository {
   list(filters: ListConsentsFilters): Promise<ListConsentsResult>;
+
+  listByClass(filters: ListClassConsentsFilters): Promise<ListClassConsentsResult>;
   findById(
     consentId: string,
     studentId: string,

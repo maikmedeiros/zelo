@@ -68,8 +68,15 @@ em português entrando, tipos em inglês saindo.
 `FindListPostsUseCase`, `FindListPostsController`, `findListPostsValidator`,
 `makeFindListPostsController`.
 
-Exceção registrada: `GET /sessions/current` usa `find-current-session`, porque `current` é
-seletor e não campo — `find-session-by-current` não diz nada.
+Exceções registradas:
+
+- `GET /sessions/current` usa `find-current-session`, porque `current` é seletor e não campo
+  — `find-session-by-current` não diz nada.
+- `GET /classes/:classId/consents` usa `find-list-class-consents`, e não
+  `find-list-consents`, porque esse nome já é do histórico de uma criança
+  (`GET /students/:studentId/consents`) e os símbolos colidiriam. São read models distintos:
+  ali cada linha é um fato datado, aqui cada linha é uma criança com o estado vigente dos
+  três tipos. O segmento do recurso pai entra no nome só quando há colisão.
 
 **Contratos de `domain`/`infra` NÃO seguem a feature** (são compartilhados): o método do
 repositório é `list()` / `findById()`, os tipos são `ListPostsFilters` / `ListPostsResult`, e
