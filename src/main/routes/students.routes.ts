@@ -4,22 +4,30 @@ import { Feature } from '@config/features.js';
 import { controller } from '@shared/adapters/index.js';
 import {
   makeCreateConsentController,
+  makeCreateJournalEntryController,
   makeCreateStudentController,
+  makeDeleteJournalEntryController,
   makeDeleteStudentController,
   makeFindListConsentsController,
+  makeFindListJournalEntriesController,
   makeFindListStudentsController,
   makeFindStudentByIdController,
   makeRevokeConsentController,
+  makeUpdateJournalEntryController,
   makeUpdateStudentController,
 } from '@main/factories/students/index.js';
 import {
   createConsentValidator,
+  createJournalEntryValidator,
   createStudentValidator,
+  deleteJournalEntryValidator,
   deleteStudentValidator,
   findListConsentsValidator,
+  findListJournalEntriesValidator,
   findListStudentsValidator,
   findStudentByIdValidator,
   revokeConsentValidator,
+  updateJournalEntryValidator,
   updateStudentValidator,
 } from '@modules/presentation/validators/students/index.js';
 
@@ -57,6 +65,34 @@ export default (router: Router): void => {
     authz.canRequest(Feature.ConsentRevoke),
     revokeConsentValidator,
     controller(makeRevokeConsentController()),
+  );
+
+  router.get(
+    '/students/:studentId/journal',
+    authz.canRequest(Feature.JournalView),
+    findListJournalEntriesValidator,
+    controller(makeFindListJournalEntriesController()),
+  );
+
+  router.post(
+    '/students/:studentId/journal',
+    authz.canRequest(Feature.JournalCreate),
+    createJournalEntryValidator,
+    controller(makeCreateJournalEntryController()),
+  );
+
+  router.patch(
+    '/students/:studentId/journal/:entryId',
+    authz.canRequest(Feature.JournalUpdate),
+    updateJournalEntryValidator,
+    controller(makeUpdateJournalEntryController()),
+  );
+
+  router.delete(
+    '/students/:studentId/journal/:entryId',
+    authz.canRequest(Feature.JournalDelete),
+    deleteJournalEntryValidator,
+    controller(makeDeleteJournalEntryController()),
   );
 
   router.get(

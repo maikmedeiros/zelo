@@ -149,6 +149,12 @@ Enum status_comentario {
   REMOVIDO_PELA_ESCOLA [note: 'Moderação — exige motivo registrado']
 }
 
+Enum status_agenda {
+  PUBLICADA
+  REMOVIDA_PELO_AUTOR
+  REMOVIDA_PELA_ESCOLA [note: 'Moderação — exige motivo registrado']
+}
+
 Enum canal_notificacao {
   EMAIL
   PUSH
@@ -1123,6 +1129,59 @@ Table RELATORIO_TEMPLATE_ITEM {
 }
 
 // =============================================================================
+// 8b. AGENDA — o caderno de recados, um por criança
+// =============================================================================
+
+Table AGENDA_ENTRADA {
+  id              uuid          [pk, default: `gen_random_uuid()`]
+  aluno_id        uuid          [not null, ref: > ALUNO.id]
+  turma_id        uuid          [not null, ref: > TURMA.id, note: 'A turma da criança QUANDO o recado foi escrito']
+  autor_id        uuid          [not null, ref: > USUARIO.id, note: 'Professora, coordenação OU responsável']
+  responde_a_id   uuid          [ref: > AGENDA_ENTRADA.id]
+  texto           text          [not null]
+  data_referencia date          [not null, default: `current_date`, note: 'O dia sobre o qual o recado fala']
+  status          status_agenda [not null, default: 'PUBLICADA']
+  removido_por    uuid          [ref: > USUARIO.id]
+  removido_em     timestamptz
+  motivo_remocao  text
+  editado_em      timestamptz
+  criado_em       timestamptz   [not null, default: `now()`]
+
+  indexes {
+    (aluno_id, data_referencia, criado_em) [name: 'idx_agenda_aluno']
+    turma_id
+    autor_id
+    responde_a_id [name: 'idx_agenda_resposta']
+    (id, aluno_id) [unique, name: 'uq_agenda_entrada_aluno']
+  }
+
+  Note: '''
+  # Agenda: conversa de mão dupla sobre UMA criança
+
+  Parece POSTAGEM e não é. A postagem é conteúdo da escola para uma audiência, com
+  rascunho, mídia e reação. Aqui a família também escreve, o destinatário é uma
+  criança só, e a linha é um recado — existe quando é escrito, sem ciclo de
+  publicação.
+
+  **`responde_a_id` é vínculo real.** Num mesmo dia convivem tosse e alimentação;
+  sem o vínculo as duas conversas se misturam na ordem cronológica.
+
+  **A resposta é da mesma criança, garantido pelo banco.** A unique
+  `(id, aluno_id)` existe para sustentar a FK composta
+  `(responde_a_id, aluno_id) → (id, aluno_id)`: não há como apontar para a agenda
+  de outra criança nem por engano nem de propósito.
+
+  **O responsável publica e não corrige.** Sem UPDATE e sem DELETE para ele — é o
+  caderno de papel, onde não se arranca a folha. A professora edita e retira o que
+  ela mesma escreveu; a coordenação retira o de qualquer um, com motivo, e a linha
+  vira lápide.
+
+  **Sem anexo nesta fatia.** Vídeo entra depois, em tabela própria — por isso não
+  existe aqui uma coluna de mídia esperando uso.
+  '''
+}
+
+// =============================================================================
 // 9. FASE 2 — VISÃO COMPUTACIONAL
 // =============================================================================
 
@@ -1253,6 +1312,10 @@ TableGroup acompanhamento {
   RELATORIO_ITEM
   RELATORIO_TEMPLATE
   RELATORIO_TEMPLATE_ITEM
+}
+
+TableGroup agenda {
+  AGENDA_ENTRADA
 }
 
 TableGroup visao_computacional {

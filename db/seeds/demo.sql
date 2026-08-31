@@ -403,4 +403,61 @@ INSERT INTO relatorio_template_item (template_id, dimensao, nivel, observacao) V
   ('7ccccccc-0000-0000-0000-000000000001', 'AUTONOMIA',    NULL, 'Guarda o próprio material com apoio verbal do adulto.')
 ON CONFLICT DO NOTHING;
 
+-- =============================================================================
+-- AGENDA
+-- =============================================================================
+-- O caderno de recados, por criança. Théo e Helena são os dois da Turma A com pais
+-- diferentes — bruno e gabriel —, e é esse par que prova o recorte: cada pai enxerga só a
+-- agenda do próprio filho, embora as crianças estejam na mesma sala.
+--
+-- A conversa do Théo tem os dois lados e um vínculo de resposta; a da Helena tem só a
+-- professora. Bruno alcança 3 entradas, gabriel alcança 1.
+
+INSERT INTO agenda_entrada
+  (id, aluno_id, turma_id, autor_id, texto, data_referencia, criado_em)
+VALUES
+  (
+    '7ddddddd-0000-0000-0000-000000000001',
+    '55555555-0000-0000-0000-000000000006',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000001',
+    'Bom dia, pais. O Théo não se alimentou bem hoje: recusou o almoço e comeu só a fruta da tarde. Nada de febre, mas fica o aviso.',
+    DATE '2026-08-27',
+    TIMESTAMPTZ '2026-08-27 17:20:00-03'
+  ),
+  (
+    '7ddddddd-0000-0000-0000-000000000003',
+    '55555555-0000-0000-0000-000000000006',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000001',
+    'Bom dia, pais. A criança apresentou muita tosse ao longo do dia, principalmente depois do parque.',
+    DATE '2026-08-28',
+    TIMESTAMPTZ '2026-08-28 17:05:00-03'
+  ),
+  (
+    '7ddddddd-0000-0000-0000-00000000000a',
+    '55555555-0000-0000-0000-00000000000a',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000001',
+    'Bom dia, pais. A Helena dormiu pouco no descanso e ficou mais irritada no fim da tarde.',
+    DATE '2026-08-28',
+    TIMESTAMPTZ '2026-08-28 17:10:00-03'
+  )
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO agenda_entrada
+  (id, aluno_id, turma_id, autor_id, responde_a_id, texto, data_referencia, criado_em)
+VALUES
+  (
+    '7ddddddd-0000-0000-0000-000000000002',
+    '55555555-0000-0000-0000-000000000006',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000002',
+    '7ddddddd-0000-0000-0000-000000000001',
+    'Obrigado por avisar. Ele acordou reclamando de dor de barriga, deve ser isso. Amanhã mando a fruta que ele gosta.',
+    DATE '2026-08-27',
+    TIMESTAMPTZ '2026-08-27 20:40:00-03'
+  )
+ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

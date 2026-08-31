@@ -29,6 +29,11 @@ export enum Feature {
   GuardianLinkUpdate = 'UPDATE:GUARDIAN_LINK',
   GuardianLinkView = 'VIEW:GUARDIAN_LINK',
 
+  JournalCreate = 'CREATE:JOURNAL',
+  JournalDelete = 'DELETE:JOURNAL',
+  JournalUpdate = 'UPDATE:JOURNAL',
+  JournalView = 'VIEW:JOURNAL',
+
   MediaCreate = 'CREATE:MEDIA',
   MediaDelete = 'DELETE:MEDIA',
   MediaView = 'VIEW:MEDIA',
