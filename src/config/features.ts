@@ -63,6 +63,11 @@ export enum Feature {
   ReportUpdate = 'UPDATE:REPORT',
   ReportView = 'VIEW:REPORT',
 
+  ReportTemplateCreate = 'CREATE:REPORT_TEMPLATE',
+  ReportTemplateDelete = 'DELETE:REPORT_TEMPLATE',
+  ReportTemplateUpdate = 'UPDATE:REPORT_TEMPLATE',
+  ReportTemplateView = 'VIEW:REPORT_TEMPLATE',
+
   RoleCreate = 'CREATE:ROLE',
   RoleUpdate = 'UPDATE:ROLE',
   RoleView = 'VIEW:ROLE',

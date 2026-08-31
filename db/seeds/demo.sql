@@ -323,4 +323,84 @@ FROM reacao r
 WHERE r.codigo = 'CORACAO'
 ON CONFLICT (id) DO NOTHING;
 
+-- =============================================================================
+-- RELATÓRIO DE ADAPTAÇÃO
+-- =============================================================================
+-- Dois relatórios da Ana sobre crianças da Turma A: um PUBLICADO, que o Bruno enxerga, e um
+-- RASCUNHO, que só a equipe da turma alcança. É o par que exercita a regra de visibilidade.
+
+INSERT INTO relatorio_adaptacao
+  (id, aluno_id, turma_id, autor_id, periodo_inicio, periodo_fim, status, sintese, publicado_em)
+VALUES
+  (
+    '7bbbbbbb-0000-0000-0000-000000000001',
+    '55555555-0000-0000-0000-000000000006',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000001',
+    DATE '2026-02-02', DATE '2026-04-30', 'PUBLICADO',
+    'O Théo chegou chorando na primeira semana e hoje entra sozinho. A separação deixou de ser o ponto difícil do dia.',
+    TIMESTAMPTZ '2026-05-04 10:00:00-03'
+  ),
+  (
+    '7bbbbbbb-0000-0000-0000-00000000000a',
+    '55555555-0000-0000-0000-00000000000a',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000001',
+    DATE '2026-05-01', DATE '2026-07-31', 'RASCUNHO',
+    NULL, NULL
+  )
+ON CONFLICT (id) DO NOTHING;
+
+-- As sete dimensões existem em todo relatório: quem não foi observada fica NAO_OBSERVADO, e é
+-- isso que torna dois relatórios da mesma criança comparáveis no tempo.
+INSERT INTO relatorio_item (relatorio_id, dimensao, nivel, observacao)
+SELECT
+  r.id,
+  d.dimensao::dimensao_adaptacao,
+  coalesce(v.nivel, 'NAO_OBSERVADO')::nivel_adaptacao,
+  v.observacao
+FROM relatorio_adaptacao r
+CROSS JOIN unnest(ARRAY[
+  'ACOLHIMENTO', 'ALIMENTACAO', 'SONO', 'SOCIALIZACAO',
+  'AUTONOMIA', 'LINGUAGEM', 'DESENVOLVIMENTO_MOTOR'
+]) AS d(dimensao)
+LEFT JOIN (VALUES
+  ('7bbbbbbb-0000-0000-0000-000000000001', 'ACOLHIMENTO',  'CONSOLIDADO',        'Entra sozinho e se despede na porta.'),
+  ('7bbbbbbb-0000-0000-0000-000000000001', 'ALIMENTACAO',  'EM_DESENVOLVIMENTO', 'Aceita a fruta da tarde; recusa legume cozido.'),
+  ('7bbbbbbb-0000-0000-0000-000000000001', 'SONO',         'CONSOLIDADO',        'Dorme o período todo sem colo.'),
+  ('7bbbbbbb-0000-0000-0000-000000000001', 'SOCIALIZACAO', 'EM_DESENVOLVIMENTO', 'Brinca ao lado dos colegas, ainda pouca troca.'),
+  ('7bbbbbbb-0000-0000-0000-000000000001', 'LINGUAGEM',    'EM_INICIO',          'Fala por palavra solta, aponta o que quer.')
+) AS v(relatorio_adaptacao, dimensao, nivel, observacao)
+  ON v.relatorio_adaptacao::uuid = r.id AND v.dimensao = d.dimensao
+WHERE r.id IN (
+  '7bbbbbbb-0000-0000-0000-000000000001',
+  '7bbbbbbb-0000-0000-0000-00000000000a'
+)
+ON CONFLICT DO NOTHING;
+
+-- =============================================================================
+-- TEMPLATE DE PREENCHIMENTO
+-- =============================================================================
+-- Da escola, não da Ana: a Diana e qualquer outra professora usam o mesmo. `criado_por` é
+-- autoria e chave de quem pode editar, nunca recorte de leitura.
+
+INSERT INTO relatorio_template (id, escola_id, nome, descricao, sintese, criado_por) VALUES
+  (
+    '7ccccccc-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    'Adaptação — primeiro trimestre',
+    'Texto de partida para o fechamento do primeiro trimestre do berçário.',
+    'A criança concluiu o período de adaptação com o acolhimento estabelecido e a rotina da casa incorporada.',
+    '44444444-0000-0000-0000-000000000001'
+  )
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO relatorio_template_item (template_id, dimensao, nivel, observacao) VALUES
+  ('7ccccccc-0000-0000-0000-000000000001', 'ACOLHIMENTO',  NULL, 'Chega à sala e se despede da família sem intercorrência.'),
+  ('7ccccccc-0000-0000-0000-000000000001', 'ALIMENTACAO',  NULL, 'Aceita a refeição oferecida e experimenta alimento novo quando incentivada.'),
+  ('7ccccccc-0000-0000-0000-000000000001', 'SONO',         NULL, 'Adormece no colchonete no horário da turma.'),
+  ('7ccccccc-0000-0000-0000-000000000001', 'SOCIALIZACAO', NULL, 'Participa das brincadeiras coletivas e divide os brinquedos.'),
+  ('7ccccccc-0000-0000-0000-000000000001', 'AUTONOMIA',    NULL, 'Guarda o próprio material com apoio verbal do adulto.')
+ON CONFLICT DO NOTHING;
+
 COMMIT;

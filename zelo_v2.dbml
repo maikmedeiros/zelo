@@ -1033,17 +1033,18 @@ Table NOTIFICACAO_DESTINATARIO {
 // =============================================================================
 
 Table RELATORIO_ADAPTACAO {
-  id             uuid             [pk, default: `gen_random_uuid()`]
-  aluno_id       uuid             [not null, ref: > ALUNO.id]
-  turma_id       uuid             [not null, ref: > TURMA.id]
-  autor_id       uuid             [not null, ref: > USUARIO.id]
-  periodo_inicio date             [not null]
-  periodo_fim    date             [not null]
-  status         status_relatorio [not null, default: 'RASCUNHO']
-  sintese        text
-  publicado_em   timestamptz
-  criado_em      timestamptz      [not null, default: `now()`]
-  atualizado_em  timestamptz      [not null, default: `now()`]
+  id                 uuid             [pk, default: `gen_random_uuid()`]
+  aluno_id           uuid             [not null, ref: > ALUNO.id]
+  turma_id           uuid             [not null, ref: > TURMA.id]
+  autor_id           uuid             [not null, ref: > USUARIO.id]
+  periodo_inicio     date             [not null]
+  periodo_fim        date             [not null]
+  status             status_relatorio [not null, default: 'RASCUNHO']
+  sintese            text
+  template_origem_id uuid             [ref: > RELATORIO_TEMPLATE.id, note: 'Rastreio; os valores já foram copiados']
+  publicado_em       timestamptz
+  criado_em          timestamptz      [not null, default: `now()`]
+  atualizado_em      timestamptz      [not null, default: `now()`]
 
   indexes {
     (aluno_id, periodo_inicio)
@@ -1060,6 +1061,65 @@ Table RELATORIO_ITEM {
   indexes {
     (relatorio_id, dimensao) [unique, name: 'uq_relatorio_dimensao']
   }
+}
+
+// -----------------------------------------------------------------------------
+// Template de preenchimento
+// -----------------------------------------------------------------------------
+
+Table RELATORIO_TEMPLATE {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  escola_id     uuid        [not null, ref: > ESCOLA.id]
+  nome          text        [not null]
+  descricao     text
+  sintese       text        [note: 'Texto padrão da síntese']
+  criado_por    uuid        [not null, ref: > USUARIO.id, note: 'Autoria; NÃO restringe leitura']
+  ativo         boolean     [not null, default: true, note: 'Soft delete']
+  criado_em     timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (escola_id, `lower(nome)`) [unique, name: 'uq_relatorio_template_nome', note: 'PARCIAL: WHERE ativo']
+    escola_id [name: 'idx_relatorio_template_escola', note: 'PARCIAL: WHERE ativo']
+  }
+
+  Note: '''
+  O texto que a professora repete, guardado para não redigitar.
+
+  **O template não define a estrutura do relatório.** As sete dimensões e os quatro
+  níveis são do enum, desde a 001, e é isso que faz dois relatórios da mesma criança
+  em março e em junho serem comparáveis — e que permite à coordenação perguntar
+  quantas crianças estão EM_INICIO em SOCIALIZACAO. Estrutura livre por template
+  destruiria as duas coisas.
+
+  É também o que faz o auxílio de preenchimento existir: o texto salvo precisa de um
+  campo estável onde pousar. Sem "o campo SONO", não há o que pré-preencher.
+
+  **É da ESCOLA, não da autora.** Qualquer professora usa o template da colega — é
+  assim que a linguagem da casa se padroniza. `criado_por` é autoria e chave da
+  abrangência PROPRIA de quem pode editar, nunca recorte de leitura.
+  '''
+}
+
+Table RELATORIO_TEMPLATE_ITEM {
+  id          uuid               [pk, default: `gen_random_uuid()`]
+  template_id uuid               [not null, ref: > RELATORIO_TEMPLATE.id]
+  dimensao    dimensao_adaptacao [not null]
+  nivel       nivel_adaptacao    [note: 'NULL = não presume nível, só oferece o texto']
+  observacao  text
+
+  indexes {
+    (template_id, dimensao) [unique, name: 'uq_relatorio_template_dimensao']
+  }
+
+  Note: '''
+  Uma linha por dimensão, no máximo — espelha `uq_relatorio_dimensao` do relatório.
+
+  `nivel` nulo é o caso comum: o texto padrão vale para a dimensão e o nível é o que
+  a professora observa naquela criança. Ao aplicar o template, nulo vira
+  NAO_OBSERVADO. O CHECK `template_item_tem_conteudo` recusa a linha que não traz nem
+  nível nem texto.
+  '''
 }
 
 // =============================================================================
@@ -1191,6 +1251,8 @@ TableGroup notificacao {
 TableGroup acompanhamento {
   RELATORIO_ADAPTACAO
   RELATORIO_ITEM
+  RELATORIO_TEMPLATE
+  RELATORIO_TEMPLATE_ITEM
 }
 
 TableGroup visao_computacional {
