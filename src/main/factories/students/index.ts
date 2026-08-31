@@ -1,3 +1,6 @@
+export * from './consents/create-consent/create-consent.factory.js';
+export * from './consents/find-list-consents/find-list-consents.factory.js';
+export * from './consents/revoke-consent/revoke-consent.factory.js';
 export * from './create-student/create-student.factory.js';
 export * from './delete-student/delete-student.factory.js';
 export * from './find-list-students/find-list-students.factory.js';

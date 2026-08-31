@@ -4,8 +4,10 @@ import {
   emptyPagination,
   paginationFromRow,
 } from '@shared/infra/database/index.js';
+import { formatPersonName } from '@shared/utils/name/index.js';
 import { GuardianLink } from '../../domain/entities/guardian-link.js';
 import {
+  ConsentAuthority,
   CreateGuardianLinkData,
   IGuardianLinkRepository,
   ListGuardianLinksFilters,
@@ -17,6 +19,7 @@ import {
   GuardianLinkPersistenceRow,
 } from '../../application/mappers/guardian-links/guardian-link-mapper.js';
 import { escolaDoAtor } from './sql/escola-do-ator.js';
+import { pessoaDoAtor } from './sql/pessoa-do-ator.js';
 import { alunoVisivelParaAtor } from './sql/turma-escopo.js';
 
 const JOINS = `
@@ -121,6 +124,45 @@ const REVOKE = `
   RETURNING ra.id::text AS "ID";
 `;
 
+// `pode_consentir` é do MODELO, não uma invenção da fase: nem todo responsável assina pela
+// criança. Padrasto com vínculo de convivência, avó que busca na escola — os dois têm vínculo
+// vigente e nenhum dos dois decide sobre a imagem dela. Só o vínculo vigente conta: quem
+// deixou de ser responsável não passa a decidir por inércia.
+const SELECT_AUTHORITY = (criterio: string): string => `
+  SELECT
+    ra.responsavel_id::text AS "ID",
+    pr.nome                 AS "NOME",
+    ra.pode_consentir       AS "PODE_CONSENTIR"
+  FROM responsavel_aluno ra
+  INNER JOIN responsavel r ON r.id = ra.responsavel_id
+  INNER JOIN pessoa pr     ON pr.id = r.pessoa_id
+  WHERE ra.aluno_id = @studentId::uuid
+    AND ra.data_fim IS NULL
+    AND ${criterio}
+  LIMIT 1;
+`;
+
+// O ator chega como `usuario.id` e o vínculo aponta para `responsavel.pessoa_id`: são chaves
+// diferentes, e é este salto que o `pessoaDoAtor` dá (CLAUDE.md §10).
+const SELECT_AUTHORITY_OF_ACTOR = SELECT_AUTHORITY(`r.pessoa_id = ${pessoaDoAtor()}`);
+
+const SELECT_AUTHORITY_BY_ID = SELECT_AUTHORITY('ra.responsavel_id = @guardianId::uuid');
+
+interface AuthorityRow {
+  ID: string;
+  NOME: string;
+  PODE_CONSENTIR: boolean;
+}
+
+const toAuthority = (row: AuthorityRow | undefined): ConsentAuthority | null =>
+  row
+    ? {
+        guardianId: row.ID,
+        guardianName: formatPersonName(row.NOME),
+        canConsent: row.PODE_CONSENTIR,
+      }
+    : null;
+
 interface IdRow {
   ID: string;
 }
@@ -196,6 +238,24 @@ export class GuardianLinkRepository implements IGuardianLinkRepository {
     });
 
     return rows.length > 0;
+  }
+
+  async findConsentAuthority(studentId: string, actorId: string): Promise<ConsentAuthority | null> {
+    const rows = await this.db.query<AuthorityRow>(SELECT_AUTHORITY_OF_ACTOR, {
+      studentId,
+      actorId,
+    });
+
+    return toAuthority(rows[0]);
+  }
+
+  async findAuthorityOf(studentId: string, guardianId: string): Promise<ConsentAuthority | null> {
+    const rows = await this.db.query<AuthorityRow>(SELECT_AUTHORITY_BY_ID, {
+      studentId,
+      guardianId,
+    });
+
+    return toAuthority(rows[0]);
   }
 
   async revoke(linkId: string): Promise<boolean> {

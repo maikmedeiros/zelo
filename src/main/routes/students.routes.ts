@@ -3,17 +3,23 @@ import authz from '@config/authz.js';
 import { Feature } from '@config/features.js';
 import { controller } from '@shared/adapters/index.js';
 import {
+  makeCreateConsentController,
   makeCreateStudentController,
   makeDeleteStudentController,
+  makeFindListConsentsController,
   makeFindListStudentsController,
   makeFindStudentByIdController,
+  makeRevokeConsentController,
   makeUpdateStudentController,
 } from '@main/factories/students/index.js';
 import {
+  createConsentValidator,
   createStudentValidator,
   deleteStudentValidator,
+  findListConsentsValidator,
   findListStudentsValidator,
   findStudentByIdValidator,
+  revokeConsentValidator,
   updateStudentValidator,
 } from '@modules/presentation/validators/students/index.js';
 
@@ -30,6 +36,27 @@ export default (router: Router): void => {
     authz.canRequest(Feature.StudentCreate),
     createStudentValidator,
     controller(makeCreateStudentController()),
+  );
+
+  router.get(
+    '/students/:studentId/consents',
+    authz.canRequest(Feature.ConsentView),
+    findListConsentsValidator,
+    controller(makeFindListConsentsController()),
+  );
+
+  router.post(
+    '/students/:studentId/consents',
+    authz.canRequest(Feature.ConsentCreate),
+    createConsentValidator,
+    controller(makeCreateConsentController()),
+  );
+
+  router.delete(
+    '/students/:studentId/consents/:consentId',
+    authz.canRequest(Feature.ConsentRevoke),
+    revokeConsentValidator,
+    controller(makeRevokeConsentController()),
   );
 
   router.get(
