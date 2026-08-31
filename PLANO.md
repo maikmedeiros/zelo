@@ -17,25 +17,27 @@ turma, e os CRUDs que sustentam a demonstração do TCC.
 
 ## Estado atual — 31/08/2026
 
-Migrations `001`–`012` aplicadas. `src/modules/` cobre **dezoito** recursos: `sessions`,
+Migrations `001`–`014` aplicadas. `src/modules/` cobre **dezoito** recursos: `sessions`,
 `posts`, `school-years`, `classes`, `people`, `users`, `students`, `guardians`, `teachers`,
 `enrollments`, `guardian-links`, `teacher-links`, `class-accesses`, `roles`, `role-grants`,
-`reaction-types`, `reports` e `report-templates` —
-**90 rotas** e **75 capabilities**. O `injectActor` está global no [app.ts](src/main/app.ts), com as rotas públicas
-montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
+`reaction-types`, `reports` e `report-templates` — mais os aninhados `consents`, `journal`,
+`media`, `comments`, `reactions` e `photo`. **93 rotas** e **79 capabilities**. O `injectActor` está
+global no [app.ts](src/main/app.ts), com as rotas públicas montadas antes dele. `npm run build`, `lint:eslint:check`, `lint:security` e
 `prettier --check` passam limpos.
 
-| Fase                          | Estado                                    |
-| ----------------------------- | ----------------------------------------- |
-| 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2) |
-| 1 — Login e sessão            | ✅ concluída e verificada                 |
-| 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                  |
-| 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                  |
-| 3b — Catálogo de perfis       | ✅ concluída (migration 007)              |
-| 4 — Conteúdo e interação      | ✅ concluída (4.0 a 4.3)                  |
-| 5 — Consentimento e relatório | ✅ concluída (5.1 a 5.3)                  |
-| 6 — RLS                       | ⬜                                        |
-| 7 — CRUD de tokens de API     | ⬜ (era 1b; adiada para o fim)            |
+| Fase                          | Estado                                        |
+| ----------------------------- | --------------------------------------------- |
+| 0 — Fundação de autorização   | ✅ concluída (o 0.6 migrou para a Fase 2)     |
+| 1 — Login e sessão            | ✅ concluída e verificada                     |
+| 2 — Postagens                 | ✅ concluída (2.1 a 2.5)                      |
+| 3 — Cadastros                 | ✅ concluída (3.1 a 3.6)                      |
+| 3b — Catálogo de perfis       | ✅ concluída (migration 007)                  |
+| 4 — Conteúdo e interação      | ✅ concluída (4.0 a 4.3)                      |
+| 5 — Consentimento e relatório | ✅ concluída (5.1 a 5.3)                      |
+| 8 — Agenda do aluno           | ✅ concluída (fora da ordem, pedida em 31/08) |
+| 6 — RLS                       | ⬜ antes de escrever o texto                  |
+| 7 — CRUD de tokens de API     | ⬜ (era 1b; adiada para o fim)                |
+| Front-end                     | ⬜ **próxima etapa**                          |
 
 Verificação da Fase 1 executada contra `localhost:3003`, com o administrador de bootstrap:
 `201` no login (com `Set-Cookie` httpOnly), `200` no `sessions/current` (todas as
@@ -1139,6 +1141,145 @@ relatório que veio daquele template continua legível.
 
 **Regressão.** As matrizes anteriores intactas: postagens `5/4/4/4/2/3/0` com `403` para fabio,
 alunos `3/2/3/1/1/1/0`. Banco devolvido ao estado do seed.
+
+## Fase 8 — Agenda do aluno ✅
+
+Pedida em 31/08/2026, **fora da ordem do plano** — a numeração aqui é de planejamento, não de
+execução, e a 6 e a 7 seguem abertas.
+
+O caderno de recados que a criança leva na bolsa: a professora conta como foi o dia, a família
+responde ou puxa assunto novo. Uma tabela, `agenda_entrada`, na migration `014`.
+
+### Por que tabela própria, e não uma flag em `postagem`
+
+Parece postagem e não é. A postagem é conteúdo da escola para uma **audiência** — turma ou
+lista de crianças —, com rascunho, mídia e reação. A agenda é conversa de mão dupla sobre
+**uma** criança: a família também escreve, o destinatário é único, e a linha é um recado.
+Reaproveitar `postagem` obrigaria a acrescentar `responde_a_id`, afrouxar `CREATE:POST` para o
+responsável e explicar por que metade das colunas nunca se aplica.
+
+**Também não existe uma tabela `agenda` como pai.** A agenda de uma criança **é** o conjunto
+das entradas dela: a tabela não carregaria nada e custaria um `JOIN` em toda consulta. É o
+§1.10 na prática — abstração nasce com o primeiro consumidor real.
+
+### As três decisões do cliente
+
+1. **Sem anexo nesta fatia.** Os recados são texto. Vídeo entra depois, em tabela própria — e
+   é por isso que não existe uma coluna de mídia aqui esperando uso.
+2. **O responsável publica e não corrige.** Sem `UPDATE` e sem `DELETE` para ele. É o caderno
+   de papel: não se arranca a folha, escreve-se embaixo. Preserva o fio da conversa, que é o
+   valor da agenda — a professora responde a um recado que não vai mudar de texto depois.
+3. **`responde_a_id` é vínculo de verdade**, e não só ordem cronológica. Num mesmo dia
+   convivem tosse e alimentação, e sem o vínculo as duas conversas se misturam.
+
+### As decisões de modelagem
+
+**A resposta é da mesma criança, e quem garante é o banco.** Foi o cuidado maior. Um
+`responde_a_id` solto permitiria costurar a agenda de duas crianças com um id trocado, e o
+vazamento entraria pela porta da conversa. A unique `(id, aluno_id)` existe **só** para
+sustentar a FK composta `(responde_a_id, aluno_id) → (id, aluno_id)`. O use-case também
+confere e devolve **422** com o campo no `cause` — não por desconfiar do banco, mas porque a
+violação de FK sairia como 500.
+
+**`data_referencia` é o que faz disso uma agenda e não um chat.** A professora escreve às 18h
+sobre hoje, ou na manhã seguinte sobre ontem. Sem a coluna, a tela agruparia por `criado_em` e
+o recado de ontem escrito hoje apareceria no dia errado.
+
+**`turma_id` guarda a sala de QUANDO o recado foi escrito; a leitura usa a matrícula vigente.**
+As duas coisas de propósito: o histórico fica correto, e a professora nova acompanha a criança
+que mudou de sala.
+
+**Remoção é lápide, não `DELETE`.** O pai já leu o recado; fazer sumir em silêncio é pior que
+mostrar que foi retirado. `REMOVIDA_PELO_AUTOR` e `REMOVIDA_PELA_ESCOLA` são status distintos, e
+só o segundo grava motivo — para quem lê, "retirei o que eu disse" não é "a escola retirou o
+que você disse". Mesmo desenho do comentário da postagem.
+
+**Não há `RASCUNHO`.** Recado é mensagem: existe quando é escrito. O ciclo de publicação da
+postagem não serve para quem está avisando que a criança tossiu.
+
+### Capabilities e rotas
+
+Recurso `JOURNAL` no código — `report` já é do relatório, e a tabela segue em português
+(`agenda_entrada`), como manda a §3 do `CLAUDE.md`.
+
+| Perfil        | VIEW  | CREATE | UPDATE  | DELETE  |
+| ------------- | ----- | ------ | ------- | ------- |
+| `PROFESSOR`   | TURMA | TURMA  | PROPRIA | PROPRIA |
+| `COORDENACAO` | TURMA | TURMA  | PROPRIA | TURMA   |
+| `RESPONSAVEL` | TURMA | TURMA  | —       | —       |
+
+Duas escolhas que não vieram do cliente e ficam registradas: a professora **não** mexe no
+recado da mãe (`PROPRIA` no `UPDATE` e no `DELETE`), e a moderação é da coordenação
+(`DELETE:TURMA`, com motivo obrigatório) — quem retira o recado da família não é quem está do
+outro lado da conversa.
+
+| Rota                                           | Capability       |
+| ---------------------------------------------- | ---------------- |
+| `GET /students/:studentId/journal`             | `VIEW:JOURNAL`   |
+| `POST /students/:studentId/journal`            | `CREATE:JOURNAL` |
+| `PATCH /students/:studentId/journal/:entryId`  | `UPDATE:JOURNAL` |
+| `DELETE /students/:studentId/journal/:entryId` | `DELETE:JOURNAL` |
+
+Ordenação `data_referencia DESC, criado_em ASC`: dia mais recente primeiro, mas **dentro do dia
+a conversa em ordem de leitura**. As direções misturadas são de propósito — é o que faz o
+caderno ler como caderno.
+
+### A primeira policy de RLS que recorta por CRIANÇA
+
+Todas as anteriores recortam por turma. Esta não pode: bruno e gabriel são pais de crianças da
+**mesma** Maternal I A, e um não pode ler a agenda do filho do outro. A família entra por
+`aluno_no_escopo`, a equipe pela matrícula vigente cruzada com `turma_da_equipe`.
+
+É o melhor exemplo do projeto para o capítulo de autorização, porque mostra que "abrangência
+`TURMA`" não é uma resposta suficiente: a capability autoriza a **ação**, e o recorte da
+**linha** ainda precisa ser resolvido no nível certo do modelo.
+
+### Verificação da Fase 8
+
+**Leitura**, na agenda do Théo e da Helena: ana `3/1`, diana `3/1`, bruno `3/404`,
+gabriel `404/1`, carla `404/404`, elias `404/404`, fabio `403/403`. **Bruno e gabriel, mesma
+turma, 404 cruzado** — a propriedade central do trabalho, agora no nível da criança.
+
+**Escrita.** Bruno responde **201**, edita **403**, apaga **403**. Ana no recado do bruno,
+**404** nos dois verbos; no próprio, **200** com `editedAt`. Diana modera sem motivo **422**,
+com motivo **204**. Editar recado removido **409**. `repliesToId` cruzando criança **422**.
+Chave desconhecida **400**; texto só com espaço **400**. Filtro `?date` **200**, data mal
+formada **400**.
+
+**Constraints exercitadas direto no banco:** resposta apontando a agenda de outra criança viola
+a FK composta; `status` removido sem data e moderação sem motivo violam os dois CHECK.
+
+As matrizes de postagem, relatório e aluno seguem intactas.
+
+---
+
+## Ordem do que falta — decisão de 31/08/2026
+
+O plano tinha as fases mas não a ordem entre elas e o front-end. Fica registrada:
+
+**1. Front-end.** É onde está o tempo desconhecido — a API é trabalho delimitado, a tela não.
+E o front é o **primeiro consumidor real**: até aqui quem exercitou as rotas foi o Postman,
+sabendo de antemão o que cada uma devolve. A tela revela o que falta (campo que obriga duas
+chamadas, filtro que não existe) e é melhor descobrir isso antes de empilhar a RLS por cima.
+
+**2. Fase 6 — RLS.** Não "se sobrar": **antes de escrever o texto**, que é marco com data. É o
+argumento que distingue o trabalho, e as telas são CRUD competente. Se o tempo apertar, cortar
+tela custa escopo; cortar a RLS custa o capítulo.
+
+Adiá-la é barato justamente porque ela **não muda o contrato da API** — nenhuma rota, nenhum
+JSON, nenhum status code. É a única fase restante da qual isso é verdade.
+
+**3. Fase 7 — tokens de API.** Higiene de deploy, por último.
+
+**4. PDF do relatório.** Feature do fim, quando existir entrega fora do app.
+
+O obstáculo já mapeado da Fase 6, para não ser redescoberto: em
+[pg-provider.ts](src/shared/infra/database/pg-provider.ts) o `query()` faz
+`ongoingTransaction.getStore() ?? this.getPool()`, ou seja, **quase toda leitura roda fora de
+transação**. Um `SET LOCAL app.usuario_id` "no começo de cada transação" cobriria a minoria das
+consultas, e as listagens — que são exatamente o que precisa de recorte — ficariam de fora.
+Todo acesso terá de passar por uma transação com a identidade injetada, o que pina uma conexão
+do pool pela requisição inteira. Com `PG_POOL_MAX=10` isso pode aparecer como pool esgotado.
 
 ## Fase 6 — Ligar a RLS (defesa em profundidade)
 
