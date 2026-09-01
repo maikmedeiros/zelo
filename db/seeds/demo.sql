@@ -20,6 +20,11 @@
 --             aparece como 200 indevido, não como 403.
 --   Fábio   — sem perfil nenhum: é ele quem exercita o 403 de qualquer rota.
 --
+-- Joana é a família com mais de um filho: mãe do Miguel (Turma A) e da Sofia (Turma B).
+-- É a única persona cuja leitura é a UNIÃO de dois escopos — o recado endereçado às duas
+-- turmas tem de chegar a ela uma vez só, não duas — e é ela quem o seletor de filho da
+-- interface atende.
+--
 -- E, do outro extremo da régua, Isabel — ADMINISTRADOR. Ela existe porque o `admin` da
 -- migration 004 é conta de bootstrap (login `admin`, sem formato de e-mail, senha `admin`) e
 -- não serve de persona: quem demonstra o perfil mais amplo numa tela de login de verdade
@@ -67,7 +72,7 @@ ON CONFLICT (id) DO NOTHING;
 -- =============================================================================
 -- Crianças são PESSOA sem USUARIO: quem tem login é o adulto.
 
--- Os adultos têm CPF; as três crianças, não. Isso é a demonstração da regra da Fase 3: o
+-- Os adultos têm CPF; as cinco crianças, não. Isso é a demonstração da regra da Fase 3: o
 -- índice `uq_pessoa_cpf` só impede a pessoa duplicada quando o CPF está preenchido, e por
 -- isso o CPF é exigido no papel adulto (`POST /guardians`, `POST /teachers`) e não em
 -- `POST /people`. Os números abaixo têm dígito verificador válido — o `isValidCpf` os aceita.
@@ -82,7 +87,10 @@ INSERT INTO pessoa (id, escola_id, nome, data_nascimento, cpf, email_contato) VA
   ('33333333-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001', 'Fábio Gomes',      DATE '1994-02-14', '10666666601', 'fabio@zelo.test'),
   ('33333333-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', 'Gabriel Nunes',    DATE '1989-05-02', '10777777797', 'gabriel@zelo.test'),
   ('33333333-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Helena Nunes',     DATE '2023-01-27', NULL,          NULL),
-  ('33333333-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-000000000001', 'Isabel Prado',     DATE '1979-10-08', '10888888872', 'isabel@zelo.test')
+  ('33333333-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-000000000001', 'Isabel Prado',     DATE '1979-10-08', '10888888872', 'isabel@zelo.test'),
+  ('33333333-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-000000000001', 'Joana Martins',    DATE '1987-08-14', '10999999958', 'joana@zelo.test'),
+  ('33333333-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-000000000001', 'Miguel Martins',   DATE '2023-05-16', NULL,          NULL),
+  ('33333333-0000-0000-0000-00000000000e', '00000000-0000-0000-0000-000000000001', 'Sofia Martins',    DATE '2022-03-09', NULL,          NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- Backfill: bancos que rodaram o seed antes de o CPF existir têm as linhas acima com
@@ -115,7 +123,8 @@ INSERT INTO usuario (id, pessoa_id, email, senha_hash, email_verificado) VALUES
   -- Sem linha em USUARIO_PERFIL de propósito: loga, mas não tem capability nenhuma.
   ('44444444-0000-0000-0000-000000000008', '33333333-0000-0000-0000-000000000008', 'fabio@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$IauyeR3mjQZzuErJdjitBg$jH8lD3AvhSjz8jrxKcYBohAeOo56os2XG9K/tRzYh8w', true),
   ('44444444-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009', 'gabriel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$2d3hWpRdWKTBGgoOAb5p3A$S1KMooYK1fVfv/6oE4hiyzadVBLctiTi6TB5TqFfVYQ', true),
-  ('44444444-0000-0000-0000-00000000000b', '33333333-0000-0000-0000-00000000000b', 'isabel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$zhjdLnKSWsbbrVWOiH1mcg$XrcP3EM9IwqUuMpmkzepDZsvoih0kWiHftzin6y/L9A', true)
+  ('44444444-0000-0000-0000-00000000000b', '33333333-0000-0000-0000-00000000000b', 'isabel@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$zhjdLnKSWsbbrVWOiH1mcg$XrcP3EM9IwqUuMpmkzepDZsvoih0kWiHftzin6y/L9A', true),
+  ('44444444-0000-0000-0000-00000000000c', '33333333-0000-0000-0000-00000000000c', 'joana@zelo.test', '$argon2id$v=19$m=19456,t=2,p=1$1hp6d1DlNkj/AS32H70vvA$iUZRUFpEDvS9c4V6OOEkR5JbJCfyEQ5mX8yZcOjlyzA', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -125,14 +134,17 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO aluno (id, pessoa_id, codigo) VALUES
   ('55555555-0000-0000-0000-000000000006', '33333333-0000-0000-0000-000000000006', 'AL-2026-001'),
   ('55555555-0000-0000-0000-000000000007', '33333333-0000-0000-0000-000000000007', 'AL-2026-002'),
-  ('55555555-0000-0000-0000-00000000000a', '33333333-0000-0000-0000-00000000000a', 'AL-2026-003')
+  ('55555555-0000-0000-0000-00000000000a', '33333333-0000-0000-0000-00000000000a', 'AL-2026-003'),
+  ('55555555-0000-0000-0000-00000000000d', '33333333-0000-0000-0000-00000000000d', 'AL-2026-004'),
+  ('55555555-0000-0000-0000-00000000000e', '33333333-0000-0000-0000-00000000000e', 'AL-2026-005')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO responsavel (id, pessoa_id) VALUES
   ('56666666-0000-0000-0000-000000000002', '33333333-0000-0000-0000-000000000002'),
   ('56666666-0000-0000-0000-000000000003', '33333333-0000-0000-0000-000000000003'),
   ('56666666-0000-0000-0000-000000000005', '33333333-0000-0000-0000-000000000005'),
-  ('56666666-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009')
+  ('56666666-0000-0000-0000-000000000009', '33333333-0000-0000-0000-000000000009'),
+  ('56666666-0000-0000-0000-00000000000c', '33333333-0000-0000-0000-00000000000c')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO professor (id, pessoa_id, registro, formacao) VALUES
@@ -146,7 +158,9 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO matricula (id, aluno_id, turma_id, data_inicio) VALUES
   ('58888888-0000-0000-0000-000000000006', '55555555-0000-0000-0000-000000000006', '22222222-0000-0000-0000-00000000000a', DATE '2026-02-02'),
   ('58888888-0000-0000-0000-000000000007', '55555555-0000-0000-0000-000000000007', '22222222-0000-0000-0000-00000000000b', DATE '2026-02-02'),
-  ('58888888-0000-0000-0000-00000000000a', '55555555-0000-0000-0000-00000000000a', '22222222-0000-0000-0000-00000000000a', DATE '2026-02-02')
+  ('58888888-0000-0000-0000-00000000000a', '55555555-0000-0000-0000-00000000000a', '22222222-0000-0000-0000-00000000000a', DATE '2026-02-02'),
+  ('58888888-0000-0000-0000-00000000000d', '55555555-0000-0000-0000-00000000000d', '22222222-0000-0000-0000-00000000000a', DATE '2026-02-02'),
+  ('58888888-0000-0000-0000-00000000000e', '55555555-0000-0000-0000-00000000000e', '22222222-0000-0000-0000-00000000000b', DATE '2026-02-02')
 ON CONFLICT (id) DO NOTHING;
 
 -- Origem 1 — responsável: o escopo chega por RESPONSAVEL_ALUNO → MATRICULA. Elias não
@@ -154,7 +168,9 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO responsavel_aluno (id, responsavel_id, aluno_id, parentesco, pode_consentir, financeiro) VALUES
   ('59999999-0000-0000-0000-000000000002', '56666666-0000-0000-0000-000000000002', '55555555-0000-0000-0000-000000000006', 'PAI', true, true),
   ('59999999-0000-0000-0000-000000000003', '56666666-0000-0000-0000-000000000003', '55555555-0000-0000-0000-000000000007', 'MAE', true, true),
-  ('59999999-0000-0000-0000-000000000009', '56666666-0000-0000-0000-000000000009', '55555555-0000-0000-0000-00000000000a', 'PAI', true, true)
+  ('59999999-0000-0000-0000-000000000009', '56666666-0000-0000-0000-000000000009', '55555555-0000-0000-0000-00000000000a', 'PAI', true, true),
+  ('59999999-0000-0000-0000-0000000000c1', '56666666-0000-0000-0000-00000000000c', '55555555-0000-0000-0000-00000000000d', 'MAE', true, true),
+  ('59999999-0000-0000-0000-0000000000c2', '56666666-0000-0000-0000-00000000000c', '55555555-0000-0000-0000-00000000000e', 'MAE', true, true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Origem 2 — professor.
@@ -200,7 +216,8 @@ FROM (VALUES
   ('67777777-0000-0000-0000-000000000004'::uuid, '44444444-0000-0000-0000-000000000004'::uuid, 'COORDENACAO'),
   ('67777777-0000-0000-0000-000000000005'::uuid, '44444444-0000-0000-0000-000000000005'::uuid, 'RESPONSAVEL'),
   ('67777777-0000-0000-0000-000000000009'::uuid, '44444444-0000-0000-0000-000000000009'::uuid, 'RESPONSAVEL'),
-  ('67777777-0000-0000-0000-00000000000b'::uuid, '44444444-0000-0000-0000-00000000000b'::uuid, 'ADMINISTRADOR')
+  ('67777777-0000-0000-0000-00000000000b'::uuid, '44444444-0000-0000-0000-00000000000b'::uuid, 'ADMINISTRADOR'),
+  ('67777777-0000-0000-0000-00000000000c'::uuid, '44444444-0000-0000-0000-00000000000c'::uuid, 'RESPONSAVEL')
 ) AS v(id, usuario_id, codigo)
 INNER JOIN perfil f
   ON f.codigo = v.codigo AND f.escola_id = '00000000-0000-0000-0000-000000000001'
@@ -224,6 +241,18 @@ INSERT INTO consentimento (id, aluno_id, tipo, concedido, registrado_por, respon
     '55555555-0000-0000-0000-000000000007', 'IMAGEM_INTERNA', false,
     '44444444-0000-0000-0000-000000000003', '56666666-0000-0000-0000-000000000003',
     'PORTAL_RESPONSAVEL', TIMESTAMPTZ '2026-02-03 14:30:00-03'
+  ),
+  (
+    '68888888-0000-0000-0000-00000000000d',
+    '55555555-0000-0000-0000-00000000000d', 'IMAGEM_INTERNA', true,
+    '44444444-0000-0000-0000-00000000000c', '56666666-0000-0000-0000-00000000000c',
+    'TERMO_MATRICULA', TIMESTAMPTZ '2026-02-02 09:20:00-03'
+  ),
+  (
+    '68888888-0000-0000-0000-00000000000e',
+    '55555555-0000-0000-0000-00000000000e', 'IMAGEM_INTERNA', false,
+    '44444444-0000-0000-0000-00000000000c', '56666666-0000-0000-0000-00000000000c',
+    'PORTAL_RESPONSAVEL', TIMESTAMPTZ '2026-02-05 21:10:00-03'
   )
 ON CONFLICT (id) DO NOTHING;
 
@@ -415,12 +444,13 @@ ON CONFLICT DO NOTHING;
 -- =============================================================================
 -- AGENDA
 -- =============================================================================
--- O caderno de recados, por criança. Théo e Helena são os dois da Turma A com pais
--- diferentes — bruno e gabriel —, e é esse par que prova o recorte: cada pai enxerga só a
--- agenda do próprio filho, embora as crianças estejam na mesma sala.
+-- O caderno de recados, por criança. Théo, Helena e Miguel estão na MESMA Turma A e têm
+-- responsáveis diferentes — bruno, gabriel e joana —, e é esse trio que prova o recorte:
+-- cada um enxerga só a agenda do próprio filho, embora as crianças dividam a sala.
 --
--- A conversa do Théo tem os dois lados e um vínculo de resposta; a da Helena tem só a
--- professora. Bruno alcança 3 entradas, gabriel alcança 1.
+-- A conversa do Théo tem os dois lados e um vínculo de resposta; as demais têm só a escola.
+-- Bruno alcança 3 entradas, gabriel alcança 1, joana alcança 2 — uma por filho, e são duas
+-- agendas separadas, não uma caixa de entrada da família.
 
 INSERT INTO agenda_entrada
   (id, aluno_id, turma_id, autor_id, texto, data_referencia, criado_em)
@@ -451,6 +481,24 @@ VALUES
     'Bom dia, pais. A Helena dormiu pouco no descanso e ficou mais irritada no fim da tarde.',
     DATE '2026-08-28',
     TIMESTAMPTZ '2026-08-28 17:10:00-03'
+  ),
+  (
+    '7ddddddd-0000-0000-0000-00000000000d',
+    '55555555-0000-0000-0000-00000000000d',
+    '22222222-0000-0000-0000-00000000000a',
+    '44444444-0000-0000-0000-000000000001',
+    'Bom dia, mãe. O Miguel comeu tudo no almoço e pediu repetição da sobremesa. Levou a garrafinha para casa.',
+    DATE '2026-08-28',
+    TIMESTAMPTZ '2026-08-28 17:15:00-03'
+  ),
+  (
+    '7ddddddd-0000-0000-0000-00000000000e',
+    '55555555-0000-0000-0000-00000000000e',
+    '22222222-0000-0000-0000-00000000000b',
+    '00000000-0000-0000-0000-000000000003',
+    'Bom dia, mãe. A Sofia esqueceu o casaco na sala do Maternal II B. Guardamos com a coordenação.',
+    DATE '2026-08-28',
+    TIMESTAMPTZ '2026-08-28 18:05:00-03'
   )
 ON CONFLICT (id) DO NOTHING;
 
