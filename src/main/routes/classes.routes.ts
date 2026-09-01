@@ -23,7 +23,6 @@ export default (router: Router): void => {
   router.get(
     '/classes',
     authz.canRequest(Feature.ClassView),
-    findListClassConsentsValidator,
     findListClassesValidator,
     controller(makeFindListClassesController()),
   );
