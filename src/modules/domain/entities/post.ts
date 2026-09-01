@@ -65,4 +65,7 @@ export interface Post {
    * `postId` de cada item, que seria repetir o da postagem que a contém.
    */
   media: PostMedia[];
+  commentCount: number;
+  reactionCount: number;
+  myReaction: string | null;
 }

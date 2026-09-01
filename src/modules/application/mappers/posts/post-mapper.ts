@@ -41,6 +41,9 @@ export interface PostOutput {
   referenceDate: string;
   publishedAt: string | null;
   media: PostMedia[];
+  commentCount: number;
+  reactionCount: number;
+  myReaction: string | null;
 }
 
 export interface PostPersistenceRow extends PaginatedRow {
@@ -56,6 +59,9 @@ export interface PostPersistenceRow extends PaginatedRow {
   REFERENTE_A: string;
   PUBLICADO_EM: Date | null;
   MIDIAS: MediaRow[] | null;
+  TOTAL_COMENTARIOS: number;
+  TOTAL_REACOES: number;
+  MINHA_REACAO: string | null;
 }
 
 const toClass = (row: ClassRow): PostClass => ({ id: row.ID, name: row.NOME });
@@ -91,6 +97,9 @@ export class PostMapper {
       referenceDate: row.REFERENTE_A,
       publishedAt: row.PUBLICADO_EM,
       media: (row.MIDIAS ?? []).map(toMedia),
+      commentCount: row.TOTAL_COMENTARIOS,
+      reactionCount: row.TOTAL_REACOES,
+      myReaction: row.MINHA_REACAO,
     };
   }
 

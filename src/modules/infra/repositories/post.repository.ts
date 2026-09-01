@@ -98,7 +98,19 @@ const COLUNAS_DO_ITEM = (alias: string): string => `
   ${alias}.corpo                          AS "CORPO",
   to_char(${alias}.referente_a, 'YYYY-MM-DD') AS "REFERENTE_A",
   ${alias}.publicado_em                   AS "PUBLICADO_EM",
-  (${MIDIAS_DA_POSTAGEM(`${alias}.id`)})  AS "MIDIAS"
+  (${MIDIAS_DA_POSTAGEM(`${alias}.id`)})  AS "MIDIAS",
+  (
+    SELECT count(*)::int FROM postagem_comentario pcx WHERE pcx.postagem_id = ${alias}.id
+  )                                       AS "TOTAL_COMENTARIOS",
+  (
+    SELECT count(*)::int FROM postagem_reacao prx WHERE prx.postagem_id = ${alias}.id
+  )                                       AS "TOTAL_REACOES",
+  (
+    SELECT rcx.codigo
+    FROM postagem_reacao prm
+    INNER JOIN reacao rcx ON rcx.id = prm.reacao_id
+    WHERE prm.postagem_id = ${alias}.id AND prm.usuario_id = @actorId::uuid
+  )                                       AS "MINHA_REACAO"
 `;
 
 // A contagem sai da CTE já filtrada: count(*) OVER () roda depois do WHERE e antes do
