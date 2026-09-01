@@ -50,7 +50,7 @@ const FILTRO = `
     AND (
       @search::text IS NULL
       OR pes.nome ILIKE '%' || @search::text || '%'
-      OR pes.cpf = @search::text
+      OR pes.cpf = regexp_replace(@search::text, '[^0-9]', '', 'g')
     )
     AND (
       @viewerId::uuid IS NULL
