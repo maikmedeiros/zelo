@@ -17,7 +17,7 @@ export class UpdatePostUseCase {
 
   async execute(
     postId: string,
-    actorId: string,
+    viewerId: string | null,
     data: UpdatePostData,
     guard: PostGuard,
   ): Promise<Post> {
@@ -42,7 +42,7 @@ export class UpdatePostUseCase {
     if (trocaAudiencia) {
       await assertTargetsInScope(
         this.postRepo,
-        actorId,
+        viewerId,
         data.classIds ?? [],
         data.studentIds ?? [],
       );

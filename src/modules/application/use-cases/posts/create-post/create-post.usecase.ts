@@ -13,8 +13,8 @@ export class CreatePostUseCase {
     private readonly db: IDatabaseTransaction,
   ) {}
 
-  async execute(data: CreatePostData): Promise<Post> {
-    await assertTargetsInScope(this.postRepo, data.authorId, data.classIds, data.studentIds);
+  async execute(data: CreatePostData, viewerId: string | null): Promise<Post> {
+    await assertTargetsInScope(this.postRepo, viewerId, data.classIds, data.studentIds);
 
     // Postagem e audiência na mesma transação: o trigger `postagem_audiencia_coerente` é
     // DEFERRABLE e só julga no COMMIT, então gravar uma sem a outra não passa.

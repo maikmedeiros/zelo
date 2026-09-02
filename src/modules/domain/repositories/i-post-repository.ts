@@ -54,9 +54,13 @@ export interface IPostRepository {
 
   findOwnership(postId: string): Promise<PostOwnership | null>;
 
-  /** Os ids que o ator NÃO pode endereçar. Vazio significa que a escrita é permitida. */
-  findClassesOutOfScope(classIds: string[], actorId: string): Promise<string[]>;
-  findStudentsOutOfScope(studentIds: string[], actorId: string): Promise<string[]>;
+  /**
+   * Os ids que o ator NÃO pode endereçar. Vazio significa que a escrita é permitida.
+   * `viewerId` null dispensa o recorte de vínculo (abrangência ESCOLA) — o destinatário
+   * inexistente continua fora de escopo.
+   */
+  findClassesOutOfScope(classIds: string[], viewerId: string | null): Promise<string[]>;
+  findStudentsOutOfScope(studentIds: string[], viewerId: string | null): Promise<string[]>;
 
   create(data: CreatePostData): Promise<string>;
   update(postId: string, data: UpdatePostData): Promise<boolean>;

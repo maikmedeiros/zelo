@@ -246,22 +246,34 @@ const SELECT_OWNERSHIP = `
   WHERE p.id = @postId::uuid AND p.status <> 'REMOVIDA';
 `;
 
-// Escrita usa `TURMA_DA_EQUIPE`, não o escopo de leitura. Quem publica é a escola: professor
-// e quem tem acesso concedido. O responsável lê e comenta — o caminho dele para a turma, pela
-// matrícula do filho, não abre direito de endereçar postagem a ninguém.
+// Escrita usa `TURMA_DA_EQUIPE`, não o escopo de leitura. O responsável lê e comenta — o
+// caminho dele para a turma, pela matrícula do filho, não abre direito de endereçar postagem
+// a ninguém. `@viewerId` null é a abrangência ESCOLA, que dispensa o vínculo mas não a
+// existência do destinatário.
 const SELECT_TURMAS_FORA_DE_ESCOPO = `
   SELECT alvo.id::text AS "ID"
   FROM unnest(@classIds::uuid[]) AS alvo(id)
-  WHERE alvo.id NOT IN (${TURMA_DA_EQUIPE});
+  WHERE NOT EXISTS (
+    SELECT 1 FROM turma t
+    WHERE t.id = alvo.id
+      AND (@viewerId::uuid IS NULL OR t.id IN (${TURMA_DA_EQUIPE}))
+  );
 `;
 
 const SELECT_ALUNOS_FORA_DE_ESCOPO = `
   SELECT alvo.id::text AS "ID"
   FROM unnest(@studentIds::uuid[]) AS alvo(id)
   WHERE NOT EXISTS (
-    SELECT 1 FROM matricula m
-    WHERE m.aluno_id = alvo.id AND ${ACTIVE_PERIOD('m')}
-      AND m.turma_id IN (${TURMA_DA_EQUIPE})
+    SELECT 1 FROM aluno a
+    WHERE a.id = alvo.id
+      AND (
+        @viewerId::uuid IS NULL
+        OR EXISTS (
+          SELECT 1 FROM matricula m
+          WHERE m.aluno_id = a.id AND ${ACTIVE_PERIOD('m')}
+            AND m.turma_id IN (${TURMA_DA_EQUIPE})
+        )
+      )
   );
 `;
 
@@ -395,18 +407,18 @@ export class PostRepository implements IPostRepository {
     };
   }
 
-  async findClassesOutOfScope(classIds: string[], actorId: string): Promise<string[]> {
+  async findClassesOutOfScope(classIds: string[], viewerId: string | null): Promise<string[]> {
     const rows = await this.db.query<IdRow>(SELECT_TURMAS_FORA_DE_ESCOPO, {
       classIds,
-      viewerId: actorId,
+      viewerId,
     });
     return rows.map((row) => row.ID);
   }
 
-  async findStudentsOutOfScope(studentIds: string[], actorId: string): Promise<string[]> {
+  async findStudentsOutOfScope(studentIds: string[], viewerId: string | null): Promise<string[]> {
     const rows = await this.db.query<IdRow>(SELECT_ALUNOS_FORA_DE_ESCOPO, {
       studentIds,
-      viewerId: actorId,
+      viewerId,
     });
     return rows.map((row) => row.ID);
   }
