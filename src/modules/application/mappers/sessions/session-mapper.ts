@@ -9,6 +9,7 @@ export interface CredentialsPersistenceRow {
 
 export interface AuthenticatedUserPersistenceRow {
   ID: string;
+  PESSOA_ID: string;
   NOME: string;
   EMAIL: string;
   PERFIL: string | null;
@@ -21,6 +22,12 @@ export interface SessionValidityPersistenceRow {
 
 export interface IdentityOutput {
   id: string;
+  /**
+   * A pessoa por trás do login. Vai na sessão porque é o único caminho para o ator alcançar
+   * o próprio cadastro: quem não tem `VIEW:USER` nem `VIEW:PERSON` — responsável e professor
+   * — não consegue descobri-lo por nenhuma outra rota, e sem ele não troca a própria foto.
+   */
+  personId: string;
   name: string;
   email: string;
   roles: string[];
@@ -47,6 +54,7 @@ export class SessionMapper {
 
     return {
       id: first.ID,
+      personId: first.PESSOA_ID,
       name: first.NOME,
       email: first.EMAIL,
       roles: rows.map((row) => row.PERFIL).filter((role): role is string => role !== null),
@@ -54,7 +62,13 @@ export class SessionMapper {
   }
 
   static toIdentity(user: AuthenticatedUser): IdentityOutput {
-    return { id: user.id, name: user.name, email: user.email, roles: user.roles };
+    return {
+      id: user.id,
+      personId: user.personId,
+      name: user.name,
+      email: user.email,
+      roles: user.roles,
+    };
   }
 
   static toCurrentSession(

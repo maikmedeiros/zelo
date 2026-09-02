@@ -39,10 +39,11 @@ const SELECT_CREDENTIALS = `
 
 const SELECT_AUTHENTICATED = `
   SELECT
-    u.id::text    AS "ID",
-    p.nome        AS "NOME",
-    u.email::text AS "EMAIL",
-    f.codigo      AS "PERFIL"
+    u.id::text        AS "ID",
+    u.pessoa_id::text AS "PESSOA_ID",
+    p.nome            AS "NOME",
+    u.email::text     AS "EMAIL",
+    f.codigo          AS "PERFIL"
   FROM usuario u
   INNER JOIN pessoa p ON p.id = u.pessoa_id
   LEFT JOIN usuario_perfil up

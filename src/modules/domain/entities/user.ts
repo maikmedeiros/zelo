@@ -7,6 +7,7 @@ export interface UserCredentials {
 
 export interface AuthenticatedUser {
   id: string;
+  personId: string;
   name: string;
   email: string;
   roles: string[];
