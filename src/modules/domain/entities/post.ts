@@ -53,6 +53,7 @@ export interface Post {
   classes: PostClass[];
   students: PostStudent[];
   authorId: string;
+  authorPersonId: string;
   authorName: string;
   type: PostType;
   title: string | null;

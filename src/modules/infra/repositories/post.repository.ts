@@ -92,6 +92,7 @@ const COLUNAS_DO_ITEM = (alias: string): string => `
   (${TURMAS_DA_POSTAGEM(`${alias}.id`)})  AS "TURMAS",
   (${ALUNOS_DA_POSTAGEM(`${alias}.id`, `${alias}.autor_id`)}) AS "ALUNOS",
   ${alias}.autor_id::text                 AS "AUTOR_ID",
+  autor.id::text                          AS "AUTOR_PESSOA_ID",
   autor.nome                              AS "NOME_AUTOR",
   ${alias}.tipo::text                     AS "TIPO",
   ${alias}.titulo                         AS "TITULO",

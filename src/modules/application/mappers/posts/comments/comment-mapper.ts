@@ -5,6 +5,8 @@ export interface CommentOutput {
   id: string;
   postId: string;
   authorId: string;
+  /** A foto vive em `/people/:personId/photo`: sem isto o cliente não a alcança. */
+  authorPersonId: string;
   authorName: string;
   body: string | null;
   status: CommentStatus;
@@ -17,6 +19,7 @@ export interface CommentPersistenceRow extends PaginatedRow {
   ID: string;
   POSTAGEM_ID: string;
   AUTOR_ID: string;
+  AUTOR_PESSOA_ID: string;
   AUTOR_NOME: string;
   CORPO: string | null;
   STATUS: CommentStatus;
@@ -31,6 +34,7 @@ export class CommentMapper {
       id: row.ID,
       postId: row.POSTAGEM_ID,
       authorId: row.AUTOR_ID,
+      authorPersonId: row.AUTOR_PESSOA_ID,
       authorName: row.AUTOR_NOME,
       body: row.CORPO,
       status: row.STATUS,

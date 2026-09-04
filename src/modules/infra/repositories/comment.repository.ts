@@ -19,10 +19,11 @@ import { ACTIVE_PERIOD } from './sql/vigencia.js';
 // Filtrar na aplicação deixaria o texto trafegar; aqui ele nem chega ao processo.
 const CORPO_VISIVEL = `CASE WHEN c.status = 'PUBLICADO' THEN c.corpo ELSE NULL END`;
 
-const COLUNAS = (alias: string, autor: string): string => `
+const COLUNAS = (alias: string, autor: string, autorPessoa: string): string => `
   ${alias}.id::text          AS "ID",
   ${alias}.postagem_id::text AS "POSTAGEM_ID",
   ${alias}.autor_id::text    AS "AUTOR_ID",
+  ${autorPessoa}::text       AS "AUTOR_PESSOA_ID",
   ${autor}                   AS "AUTOR_NOME",
   ${alias}.corpo             AS "CORPO",
   ${alias}.status::text      AS "STATUS",
@@ -37,6 +38,7 @@ const SELECT_LIST = `
       c.id,
       c.postagem_id,
       c.autor_id,
+      pes.id AS autor_pessoa_id,
       pes.nome AS autor_nome,
       ${CORPO_VISIVEL} AS corpo,
       c.status,
@@ -52,7 +54,7 @@ const SELECT_LIST = `
     LIMIT @limit::int OFFSET @offset::int
   )
   SELECT
-    ${COLUNAS('pagina', 'pagina.autor_nome')},
+    ${COLUNAS('pagina', 'pagina.autor_nome', 'pagina.autor_pessoa_id')},
     @page::int                                                  AS "PAGINA_ATUAL",
     @limit::int                                                 AS "LIMITE_PAGINA",
     pagina.total_registro::int                                  AS "TOTAL_REGISTRO",
@@ -103,7 +105,7 @@ const INSERT = `
     VALUES (@postId::uuid, @authorId::uuid, @body::text)
     RETURNING *
   )
-  SELECT ${COLUNAS('c', 'pes.nome')}
+  SELECT ${COLUNAS('c', 'pes.nome', 'pes.id')}
   FROM novo c
   INNER JOIN usuario u  ON u.id = c.autor_id
   INNER JOIN pessoa pes ON pes.id = u.pessoa_id;

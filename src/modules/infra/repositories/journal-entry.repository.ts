@@ -41,6 +41,7 @@ const PROJECAO = `
   ae.turma_id::text                            AS "TURMA_ID",
   t.nome                                       AS "NOME_TURMA",
   ae.autor_id::text                            AS "AUTOR_ID",
+  pu.id::text                                  AS "AUTOR_PESSOA_ID",
   pu.nome                                      AS "NOME_AUTOR",
   ae.responde_a_id::text                       AS "RESPONDE_A_ID",
   CASE WHEN ae.status = 'PUBLICADA' THEN ae.texto END AS "TEXTO",

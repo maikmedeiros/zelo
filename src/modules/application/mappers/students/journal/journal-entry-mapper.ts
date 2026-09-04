@@ -8,6 +8,8 @@ export interface JournalEntryOutput {
   classId: string;
   className: string;
   authorId: string;
+  /** A foto vive em `/people/:personId/photo`: sem isto o cliente não a alcança. */
+  authorPersonId: string;
   authorName: string;
   repliesToId: string | null;
   text: string | null;
@@ -25,6 +27,7 @@ export interface JournalEntryPersistenceRow extends PaginatedRow {
   TURMA_ID: string;
   NOME_TURMA: string;
   AUTOR_ID: string;
+  AUTOR_PESSOA_ID: string;
   NOME_AUTOR: string;
   RESPONDE_A_ID: string | null;
   TEXTO: string | null;
@@ -44,6 +47,7 @@ export class JournalEntryMapper {
       classId: row.TURMA_ID,
       className: row.NOME_TURMA,
       authorId: row.AUTOR_ID,
+      authorPersonId: row.AUTOR_PESSOA_ID,
       authorName: formatPersonName(row.NOME_AUTOR),
       repliesToId: row.RESPONDE_A_ID,
       text: row.TEXTO,

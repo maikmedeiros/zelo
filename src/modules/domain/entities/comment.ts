@@ -10,6 +10,7 @@ export interface Comment {
   id: string;
   postId: string;
   authorId: string;
+  authorPersonId: string;
   authorName: string;
   /**
    * `null` quando o comentário foi removido. A linha continua no banco — apagá-la destruiria

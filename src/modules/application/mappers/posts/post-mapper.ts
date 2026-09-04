@@ -34,6 +34,8 @@ export interface PostOutput {
   classes: PostClass[];
   students: PostStudent[];
   authorId: string;
+  /** A foto vive em `/people/:personId/photo`: sem isto o cliente não a alcança. */
+  authorPersonId: string;
   authorName: string;
   type: PostType;
   title: string | null;
@@ -52,6 +54,7 @@ export interface PostPersistenceRow extends PaginatedRow {
   TURMAS: ClassRow[] | null;
   ALUNOS: StudentRow[] | null;
   AUTOR_ID: string;
+  AUTOR_PESSOA_ID: string;
   NOME_AUTOR: string;
   TIPO: PostType;
   TITULO: string | null;
@@ -90,6 +93,7 @@ export class PostMapper {
       classes: (row.TURMAS ?? []).map(toClass),
       students: (row.ALUNOS ?? []).map(toStudent),
       authorId: row.AUTOR_ID,
+      authorPersonId: row.AUTOR_PESSOA_ID,
       authorName: formatPersonName(row.NOME_AUTOR),
       type: row.TIPO,
       title: row.TITULO,
